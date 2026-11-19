@@ -13,3 +13,5 @@ data/
 *.pfx
 *.crt
 *.cer
+.env.local
+.env.production

@@ -2,7 +2,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createSegment, createTag, deleteSegment, deleteTag, listContactSources, listContacts, listSegments, listTags, setContactTags } from './audience.js';
 import { createContact, createWorkspace, importContacts, importLegacy, linkContactExternalId, listIntegrationEvents, readState, recordContactResubscription, saveBrief, saveDomains, setActiveWorkspace, updateContactStatus, type Brief, type ContactStatus, type Domains, type SegmentFilters, type Workspace } from './storage.js';
 import { confirmSignupToken, deleteSignupForm, getSignupForm, issueSignupConfirmation, listSignupForms, saveSignupForm, submitSignupForm } from './forms.js';
@@ -13,7 +13,35 @@ import { getMailSettings, isMailProviderId, mailProviders, saveMailSettings } fr
 
 const root = resolve('.');
 const port = Number(process.env.PORT ?? 4173);
+const publicHost = (process.env.SENDMASTER_PUBLIC_HOST ?? '').trim().toLowerCase();
+const authUsername = process.env.SENDMASTER_AUTH_USERNAME ?? '';
+const authPassword = process.env.SENDMASTER_AUTH_PASSWORD ?? '';
 const mime: Record<string, string> = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.svg':'image/svg+xml' };
+
+if (publicHost && (!validDomain(publicHost) || !authUsername || authPassword.length < 24)) {
+  throw new Error('Hospedagem pública exige SENDMASTER_PUBLIC_HOST válido, SENDMASTER_AUTH_USERNAME e uma SENDMASTER_AUTH_PASSWORD com pelo menos 24 caracteres.');
+}
+if ((authUsername && !authPassword) || (!authUsername && authPassword)) throw new Error('Configure SENDMASTER_AUTH_USERNAME e SENDMASTER_AUTH_PASSWORD juntos.');
+
+function equalSecret(actual: string, expected: string): boolean {
+  return timingSafeEqual(createHash('sha256').update(actual).digest(), createHash('sha256').update(expected).digest());
+}
+
+function isAuthorized(req: IncomingMessage): boolean {
+  if (!authUsername || !authPassword) return true;
+  const header = req.headers.authorization ?? '';
+  if (!header.startsWith('Basic ')) return false;
+  let credentials: string;
+  try { credentials = Buffer.from(header.slice(6), 'base64').toString('utf8'); } catch { return false; }
+  const separator = credentials.indexOf(':');
+  if (separator < 0) return false;
+  return equalSecret(credentials.slice(0, separator), authUsername) && equalSecret(credentials.slice(separator + 1), authPassword);
+}
+
+function sendUnauthorized(res: ServerResponse): void {
+  res.writeHead(401, { 'www-authenticate': 'Basic realm="SendMaster", charset="UTF-8"', 'cache-control': 'no-store' });
+  res.end('Autenticação necessária.');
+}
 
 function sendJson(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -62,9 +90,13 @@ function publicFormPage(formId: string): string {
 const contactStatuses = new Set<ContactStatus>(['pending', 'confirmed', 'unsubscribed', 'bounced', 'complained']);
 
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const host = req.headers.host?.split(':')[0];
-  if (host !== '127.0.0.1' && host !== 'localhost') return sendJson(res, 403, { error: 'Acesso local apenas.' });
-  if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return sendJson(res, 403, { error: 'Origem não permitida.' });
+  const host = req.headers.host?.split(':')[0]?.toLowerCase();
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== publicHost) return sendJson(res, 403, { error: 'Host não permitido.' });
+  if (req.method === 'GET' && req.url === '/healthz') return sendJson(res, 200, { status: 'ok' });
+  if (publicHost && host === publicHost && !isAuthorized(req)) return sendUnauthorized(res);
+  const allowedOrigins = new Set([`http://${req.headers.host}`]);
+  if (publicHost && host === publicHost) allowedOrigins.add(`https://${publicHost}`);
+  if (req.headers.origin && !allowedOrigins.has(req.headers.origin)) return sendJson(res, 403, { error: 'Origem não permitida.' });
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
   if (url.pathname.startsWith('/api/')) {
     try {
@@ -376,4 +408,4 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 }
 
 createServer((req, res) => { void route(req, res).catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'Erro interno.' }); else if (!res.destroyed && !res.writableEnded) res.end(); }); })
-  .listen(port, '127.0.0.1', () => console.log(`SendMaster local em http://127.0.0.1:${port}`));
+  .listen(port, publicHost ? '0.0.0.0' : '127.0.0.1', () => console.log(publicHost ? `SendMaster pronto na porta ${port} para ${publicHost}` : `SendMaster local em http://127.0.0.1:${port}`));

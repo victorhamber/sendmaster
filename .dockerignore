@@ -1,0 +1,15 @@
+.git/
+.claude/
+.cursor/
+.github/
+.impeccable/
+ai-docs/
+data/
+node_modules/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log

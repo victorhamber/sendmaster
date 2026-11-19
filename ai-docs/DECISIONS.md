@@ -1,4 +1,8 @@
 # Decisões — SendMaster-App
+## 2026-11-19 — Publicação pessoal atrás de autenticação
+- Decisão: publicar o app em container Node 24 com SQLite em volume persistente; habilitar bind externo só com host permitido e Basic Auth configurada.
+- Consequência: domínio HTTPS termina no proxy Easypanel; health check `/healthz` não expõe dados. Formulários públicos e campanhas ficam fora até revisão operacional.
+
 ## 2026-11-18 — Portar o transporte conforme o plugin
 - Decisão: implementar um adaptador API por provedor e SMTP genérico; adiar testes de conexão/envio até os fluxos de campanhas e double opt-in estarem ligados.
 - Consequência: payloads seguem as classes do plugin como referência; validação operacional fica para a fase final.
