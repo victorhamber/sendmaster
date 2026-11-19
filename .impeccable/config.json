@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "tiny-text",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-11-18T17:56:42.907Z",
+        "reason": "The existing compact navigation, micro-label, and metadata sizes are an intentional app type scale; text remains at the prior 11px functional floor. This file-level detector hit is from the existing page shell."
+      }
+    ]
+  }
+}

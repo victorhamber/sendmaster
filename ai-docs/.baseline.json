@@ -1,0 +1,23 @@
+{
+".impeccable/config.json": "60a9b2a9f623",
+"AGENTS.md": "8d1da6b988b2",
+"app.js": "ec9053869adf",
+"campaigns-ui.js": "e8facd441324",
+"index.html": "e9d41f8e83ee",
+"package-lock.json": "b4679e64f4a6",
+"package.json": "04f45bdb6efc",
+"providers-ui.js": "f7f8ba1669a4",
+"src/audience.ts": "de788974e42c",
+"src/campaign-delivery.ts": "12aded56ff88",
+"src/campaigns.ts": "8a2cfc0a226a",
+"src/forms.ts": "20052d88bab9",
+"src/mailer-settings.ts": "ca3029a090ec",
+"src/mailer.ts": "3338b083c4a8",
+"src/secret-store.ts": "c30a3dd2f641",
+"src/server.ts": "42cd52e26849",
+"src/smtp-transport.ts": "cc743605eaee",
+"src/storage.ts": "32cd822e1176",
+"src/suppressions.ts": "e6cf1c29529c",
+"styles.css": "c787056c4372",
+"tsconfig.json": "9131c09cb814"
+}
