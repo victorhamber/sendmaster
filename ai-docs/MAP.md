@@ -1,4 +1,4 @@
-# MAP — SendMaster-App · 2026-11-19 · 24 arquivos · 2602 linhas
+# MAP — SendMaster-App · 2026-11-21 · 24 arquivos · 2682 linhas
 > Gerado por ai-docs/tools/map_repo.py — NÃO editar. Use isto em vez de ler o código inteiro: ache o arquivo/símbolo aqui e abra só o trecho.
 Stack: node
 Entradas: npm scripts: dev, start, typecheck
@@ -14,7 +14,7 @@ Entradas: npm scripts: dev, start, typecheck
 - package-lock.json [567L]
 - package.json [20L]
 - providers-ui.js [8L] — integrationsPage(), renderMailerProviders(), renderMailerFields(), captureMailerDraft(), refreshMailerSettings(), initMailerSettings()
-- styles.css [18L]
+- styles.css [19L]
 - tsconfig.json [13L]
 
 ## .impeccable/
@@ -28,7 +28,7 @@ Entradas: npm scripts: dev, start, typecheck
 - mailer-settings.ts [78L] Per-workspace mail provider catalog and local connection settings. — readStoredSettings(), isMailProviderId(), getMailSettings(), readMailCredentials(), saveMailSettings()
 - mailer.ts [135L] One-recipient email transport adapters ported from the original WordPress plugin — addr(), named(), requestFor(), responseMessageId(), sendWorkspaceEmail()
 - secret-store.ts [46L] Protect provider credentials at rest with Windows DPAPI locally, or an env key o — powershell(), envKey(), isProtectedSecret(), protectSecret(), revealSecret()
-- server.ts [412L] API and static server bound to loopback for personal local use. — equalSecret(), isAuthorized(), sendUnauthorized(), sendJson(), readJson(), readText(), validDomain(), validEmail(), escapeHtml(), publicFormPage(), route()
+- server.ts [491L] API and static server bound to loopback for personal local use. — equalSecret(), sessionSignature(), hasSession(), sessionCookie(), loginPage(), clientAddress(), isLoginBlocked(), handleLogin(), sendJson(), readJson(), readText(), validDomain(), +4
 - smtp-transport.ts [77L] Minimal SMTP transport for the existing generic SMTP configuration. — SmtpConnection, headerValue(), encodeHeader(), address(), base64Lines(), mimeMessage(), connect(), sendSmtpMessage()
 - storage.ts [321L] Persistência local do SendMaster: workspaces, briefs reutilizáveis e domínios. — readState(), importLegacy(), createWorkspace(), setActiveWorkspace(), saveBrief(), saveDomains(), recordIntegrationEvent(), createContact(), importContacts(), updateContactStatus(), recordContactResubscription(), linkContactExternalId(), +1
 - suppressions.ts [102L] Durable contact suppression, unsubscribe tokens, and normalized provider-event i — hashToken(), recordIntegrationEvent(), issueUnsubscribeToken(), createUnsubscribeUrl(), unsubscribeWithToken(), applyProviderMailEvent()

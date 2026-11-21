@@ -2,7 +2,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createSegment, createTag, deleteSegment, deleteTag, listContactSources, listContacts, listSegments, listTags, setContactTags } from './audience.js';
 import { createContact, createWorkspace, importContacts, importLegacy, linkContactExternalId, listIntegrationEvents, readState, recordContactResubscription, saveBrief, saveDomains, setActiveWorkspace, updateContactStatus, type Brief, type ContactStatus, type Domains, type SegmentFilters, type Workspace } from './storage.js';
 import { confirmSignupToken, deleteSignupForm, getSignupForm, issueSignupConfirmation, listSignupForms, saveSignupForm, submitSignupForm } from './forms.js';
@@ -16,10 +16,13 @@ const port = Number(process.env.PORT ?? 4173);
 const publicHost = (process.env.SENDMASTER_PUBLIC_HOST ?? '').trim().toLowerCase();
 const authUsername = process.env.SENDMASTER_AUTH_USERNAME ?? '';
 const authPassword = process.env.SENDMASTER_AUTH_PASSWORD ?? '';
+const sessionKey = Buffer.from(process.env.SENDMASTER_SECRET_KEY ?? '', 'base64');
+const sessionTtlSeconds = 7 * 24 * 60 * 60;
+const loginFailures = new Map<string, { count: number; blockedUntil: number }>();
 const mime: Record<string, string> = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.svg':'image/svg+xml' };
 
-if (publicHost && (!validDomain(publicHost) || !authUsername || authPassword.length < 24)) {
-  throw new Error('Hospedagem pública exige SENDMASTER_PUBLIC_HOST válido, SENDMASTER_AUTH_USERNAME e uma SENDMASTER_AUTH_PASSWORD com pelo menos 24 caracteres.');
+if (publicHost && (!validDomain(publicHost) || !authUsername || authPassword.length < 8 || sessionKey.length !== 32)) {
+  throw new Error('Hospedagem pública exige domínio válido, usuário, senha com pelo menos 8 caracteres e SENDMASTER_SECRET_KEY Base64 de 32 bytes.');
 }
 if ((authUsername && !authPassword) || (!authUsername && authPassword)) throw new Error('Configure SENDMASTER_AUTH_USERNAME e SENDMASTER_AUTH_PASSWORD juntos.');
 
@@ -27,20 +30,69 @@ function equalSecret(actual: string, expected: string): boolean {
   return timingSafeEqual(createHash('sha256').update(actual).digest(), createHash('sha256').update(expected).digest());
 }
 
-function isAuthorized(req: IncomingMessage): boolean {
-  if (!authUsername || !authPassword) return true;
-  const header = req.headers.authorization ?? '';
-  if (!header.startsWith('Basic ')) return false;
-  let credentials: string;
-  try { credentials = Buffer.from(header.slice(6), 'base64').toString('utf8'); } catch { return false; }
-  const separator = credentials.indexOf(':');
-  if (separator < 0) return false;
-  return equalSecret(credentials.slice(0, separator), authUsername) && equalSecret(credentials.slice(separator + 1), authPassword);
+function sessionSignature(payload: string): string {
+  return createHmac('sha256', sessionKey).update(payload).digest('base64url');
 }
 
-function sendUnauthorized(res: ServerResponse): void {
-  res.writeHead(401, { 'www-authenticate': 'Basic realm="SendMaster", charset="UTF-8"', 'cache-control': 'no-store' });
-  res.end('Autenticação necessária.');
+function hasSession(req: IncomingMessage): boolean {
+  const cookie = req.headers.cookie?.split(';').map(value => value.trim()).find(value => value.startsWith('sendmaster_session='));
+  if (!cookie) return false;
+  const [payload, signature, extra] = cookie.slice('sendmaster_session='.length).split('.');
+  if (!payload || !signature || extra) return false;
+  let values: string[];
+  try { values = Buffer.from(payload, 'base64url').toString('utf8').split('\n'); } catch { return false; }
+  const [username, passwordHash, expiresAtText] = values;
+  const expectedPayload = `${authUsername}\n${createHash('sha256').update(authPassword).digest('base64url')}\n${expiresAtText}`;
+  const expectedSignature = sessionSignature(Buffer.from(expectedPayload).toString('base64url'));
+  const expiresAt = Number(expiresAtText);
+  return values.length === 3 && username === authUsername && passwordHash === createHash('sha256').update(authPassword).digest('base64url')
+    && Number.isSafeInteger(expiresAt) && expiresAt > Date.now() && expiresAt <= Date.now() + sessionTtlSeconds * 1000 + 10_000
+    && equalSecret(signature, expectedSignature);
+}
+
+function sessionCookie(): string {
+  const expiresAt = Date.now() + sessionTtlSeconds * 1000;
+  const payload = Buffer.from(`${authUsername}\n${createHash('sha256').update(authPassword).digest('base64url')}\n${expiresAt}`).toString('base64url');
+  return `sendmaster_session=${payload}.${sessionSignature(payload)}; Path=/; Max-Age=${sessionTtlSeconds}; HttpOnly; Secure; SameSite=Strict`;
+}
+
+function loginPage(error = ''): string {
+  const message = error ? `<p class="error" role="alert">${error}</p>` : '';
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>Entrar · SendMaster</title><style>
+    *{box-sizing:border-box}body{min-height:100vh;margin:0;display:grid;place-items:center;padding:24px;background:#f5f7f5;color:#24352b;font:16px system-ui,sans-serif}.card{width:min(100%,410px);padding:34px;background:#fff;border:1px solid #e0e8e2;border-radius:16px;box-shadow:0 18px 50px #173c2512}.brand{display:flex;align-items:center;gap:11px;margin-bottom:30px;color:#20352c;font-size:18px;font-weight:700}.mark{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;background:#176b50;color:#fff}.brand small{display:block;margin-top:2px;color:#65736a;font-size:11px;letter-spacing:1px}.eyebrow{color:#56836b;font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase}h1{margin:9px 0 7px;font-size:27px;letter-spacing:-.6px}p{margin:0;color:#65736a;line-height:1.55}.field{display:grid;gap:7px;margin-top:19px}.field label{font-size:13px;font-weight:650}.field input{height:45px;width:100%;padding:0 12px;border:1px solid #d4dfd7;border-radius:8px;color:#24352b;font:15px system-ui,sans-serif}.field input:focus{outline:3px solid #dceee2;border-color:#4c8b68}button{width:100%;height:45px;margin-top:22px;border:0;border-radius:8px;background:#176b50;color:#fff;font:650 14px system-ui,sans-serif;cursor:pointer}button:hover{background:#12573f}.error{margin-top:16px;padding:10px 12px;border-radius:8px;background:#fff1ef;color:#9b3933;font-size:13px}
+  </style></head><body><main class="card"><div class="brand"><span class="mark">S</span><span>sendmaster<small>EMAIL WORKSPACE</small></span></div><div class="eyebrow">Área pessoal</div><h1>Entrar na sua conta</h1><p>Use seu usuário e senha para acessar o workspace.</p>${message}<form method="post" action="/login"><div class="field"><label for="username">Usuário</label><input id="username" name="username" type="text" autocomplete="username" required autofocus></div><div class="field"><label for="password">Senha</label><input id="password" name="password" type="password" autocomplete="current-password" required></div><button type="submit">Entrar</button></form></main></body></html>`;
+}
+
+function clientAddress(req: IncomingMessage): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  return (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+}
+
+function isLoginBlocked(address: string, now: number): boolean {
+  const current = loginFailures.get(address);
+  if (!current) return false;
+  if (!current.blockedUntil) return false;
+  if (current.blockedUntil <= now) { loginFailures.delete(address); return false; }
+  return true;
+}
+
+async function handleLogin(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const address = clientAddress(req);
+  const now = Date.now();
+  if (isLoginBlocked(address, now)) return sendJson(res, 429, { error: 'Muitas tentativas. Aguarde 15 minutos.' });
+  const fields = new URLSearchParams(await readText(req));
+  const valid = equalSecret(fields.get('username') ?? '', authUsername) && equalSecret(fields.get('password') ?? '', authPassword);
+  if (!valid) {
+    const previous = loginFailures.get(address) ?? { count: 0, blockedUntil: 0 };
+    const count = previous.count + 1;
+    loginFailures.set(address, { count, blockedUntil: count >= 8 ? now + 15 * 60 * 1000 : 0 });
+    res.writeHead(401, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+    res.end(loginPage(count >= 8 ? 'Muitas tentativas. Aguarde 15 minutos.' : 'Usuário ou senha incorretos.'));
+    return;
+  }
+  loginFailures.delete(address);
+  res.writeHead(303, { location: '/', 'set-cookie': sessionCookie(), 'cache-control': 'no-store' });
+  res.end();
 }
 
 function sendJson(res: ServerResponse, status: number, data: unknown): void {
@@ -91,13 +143,34 @@ const contactStatuses = new Set<ContactStatus>(['pending', 'confirmed', 'unsubsc
 
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const host = req.headers.host?.split(':')[0]?.toLowerCase();
-  if (host !== '127.0.0.1' && host !== 'localhost' && host !== publicHost) return sendJson(res, 403, { error: 'Host não permitido.' });
-  if (req.method === 'GET' && req.url === '/healthz') return sendJson(res, 200, { status: 'ok' });
-  if (publicHost && host === publicHost && !isAuthorized(req)) return sendUnauthorized(res);
-  const allowedOrigins = new Set([`http://${req.headers.host}`]);
-  if (publicHost && host === publicHost) allowedOrigins.add(`https://${publicHost}`);
+  const isHealthCheck = req.method === 'GET' && req.url === '/healthz';
+  const isLoopback = host === '127.0.0.1' || host === 'localhost';
+  if (publicHost ? host !== publicHost && !(isHealthCheck && isLoopback) : !isLoopback) return sendJson(res, 403, { error: 'Host não permitido.' });
+  if (isHealthCheck) return sendJson(res, 200, { status: 'ok' });
+  const allowedOrigins = new Set([publicHost && host === publicHost ? `https://${publicHost}` : `http://${req.headers.host}`]);
   if (req.headers.origin && !allowedOrigins.has(req.headers.origin)) return sendJson(res, 403, { error: 'Origem não permitida.' });
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+  if (publicHost && host === publicHost) {
+    const authenticated = hasSession(req);
+    if (req.method === 'POST' && url.pathname === '/login') return handleLogin(req, res);
+    if (req.method === 'POST' && url.pathname === '/logout') {
+      res.writeHead(303, { location: '/login', 'set-cookie': 'sendmaster_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict', 'cache-control': 'no-store' });
+      res.end();
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/login') {
+      if (authenticated) { res.writeHead(303, { location: '/', 'cache-control': 'no-store' }); res.end(); return; }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      res.end(loginPage());
+      return;
+    }
+    if (!authenticated) {
+      if (url.pathname.startsWith('/api/')) return sendJson(res, 401, { error: 'Entre para continuar.' });
+      res.writeHead(303, { location: '/login', 'cache-control': 'no-store' });
+      res.end();
+      return;
+    }
+  }
   if (url.pathname.startsWith('/api/')) {
     try {
       if (req.method === 'GET' && url.pathname === '/api/bootstrap') return sendJson(res, 200, readState());
@@ -403,7 +476,14 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const file = resolve(root, `.${relative}`);
   if (file !== root && !file.startsWith(root + sep)) return sendJson(res, 404, { error: 'Arquivo não encontrado.' });
   if (relative.split('/').some(part => part.startsWith('.') || part === 'data' || part === 'src')) return sendJson(res, 404, { error: 'Arquivo não encontrado.' });
-  try { res.writeHead(200, { 'content-type': mime[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' }); res.end(await readFile(file)); }
+  try {
+    const content = await readFile(file);
+    const output = relative === '/index.html'
+      ? content.toString('utf8').replace('<!-- SERVER_LOGOUT -->', publicHost ? '<form method="post" action="/logout" class="logout-form"><button type="submit" class="logout-button">Sair</button></form>' : '')
+      : content;
+    res.writeHead(200, { 'content-type': mime[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+    res.end(output);
+  }
   catch { if (!res.headersSent) sendJson(res, 404, { error: 'Arquivo não encontrado.' }); else if (!res.destroyed && !res.writableEnded) res.end(); }
 }
 
