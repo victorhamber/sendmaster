@@ -65,12 +65,12 @@ export function setContactTags(workspaceId: string, contactId: string, tagIds: s
 
 export function listContacts(workspaceId: string, filters: SegmentFilters): Contact[] {
   const query = `%${filters.search.trim().toLowerCase()}%`;
-  const contacts = db.prepare(`SELECT c.id, c.workspace_id AS workspaceId, c.email, c.name, c.source, c.status,
+  const contacts = db.prepare(`SELECT c.id, c.workspace_id AS workspaceId, c.email, c.name, c.phone, c.source, c.status,
       c.consent_at AS consentAt, c.consent_evidence AS consentEvidence, c.created_at AS createdAt, c.updated_at AS updatedAt
-    FROM contacts c WHERE c.workspace_id = ? AND (? = '%%' OR c.email_normalized LIKE ? OR lower(c.name) LIKE ?)
+    FROM contacts c WHERE c.workspace_id = ? AND (? = '%%' OR c.email_normalized LIKE ? OR lower(c.name) LIKE ? OR c.phone LIKE ?)
       AND (? = '' OR c.status = ?) AND (? = '' OR c.source = ?)
       AND (? = '' OR EXISTS (SELECT 1 FROM contact_tags ct WHERE ct.workspace_id = c.workspace_id AND ct.contact_id = c.id AND ct.tag_id = ?))
-    ORDER BY c.created_at DESC LIMIT 500`).all(workspaceId, query, query, query, filters.status, filters.status,
+    ORDER BY c.created_at DESC LIMIT 500`).all(workspaceId, query, query, query, query, filters.status, filters.status,
       filters.source, filters.source, filters.tagId, filters.tagId) as Contact[];
   if (!contacts.length) return contacts;
   const ids = contacts.map(contact => contact.id);

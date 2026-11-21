@@ -1,4 +1,8 @@
 # Decisões — SendMaster-App
+## 2026-11-21 — Campos e tema dos formulários
+- Decisão: manter telefone desligado por padrão e permitir que seja opcional ou obrigatório; salvar cores de página, cartão, texto e botão por formulário.
+- Consequência: migrações aditivas preservam formulários existentes; armazenar telefone não concede consentimento para WhatsApp/SMS.
+
 ## 2026-11-19 — Publicação pessoal atrás de autenticação
 - Decisão: publicar o app em container Node 24 com SQLite em volume persistente; habilitar bind externo só com host permitido e login web.
 - Consequência: domínio HTTPS termina no proxy Easypanel; sessão segura dura sete dias e senha mínima é 8 caracteres. Formulários públicos e campanhas ficam fora até revisão operacional.

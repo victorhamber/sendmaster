@@ -8,11 +8,11 @@ export type Workspace = { id: string; name: string; product: string; createdAt: 
 export type Brief = { id: string; name: string; data: Record<string, string>; updatedAt: string };
 export type Domains = { sending: string; tracking: string };
 export type ContactStatus = 'pending' | 'confirmed' | 'unsubscribed' | 'bounced' | 'complained';
-export type Contact = { id: string; workspaceId: string; email: string; name: string; source: string; status: ContactStatus; consentAt: string | null; consentEvidence: string; createdAt: string; updatedAt: string };
+export type Contact = { id: string; workspaceId: string; email: string; name: string; phone: string; source: string; status: ContactStatus; consentAt: string | null; consentEvidence: string; createdAt: string; updatedAt: string };
 export type Tag = { id: string; workspaceId: string; name: string; createdAt: string };
 export type SegmentFilters = { search: string; status: ContactStatus | ''; source: string; tagId: string };
 export type Segment = { id: string; workspaceId: string; name: string; filters: SegmentFilters; createdAt: string; updatedAt: string };
-export type SignupForm = { id: string; workspaceId: string; name: string; title: string; description: string; buttonLabel: string; consentText: string; collectName: boolean; doubleOptIn: boolean; tagIds: string[]; createdAt: string; updatedAt: string };
+export type SignupForm = { id: string; workspaceId: string; name: string; title: string; description: string; buttonLabel: string; consentText: string; collectName: boolean; collectPhone: boolean; phoneRequired: boolean; doubleOptIn: boolean; pageColor: string; cardColor: string; textColor: string; buttonColor: string; buttonTextColor: string; tagIds: string[]; createdAt: string; updatedAt: string };
 export type CampaignDraft = { id: string; workspaceId: string; name: string; subject: string; preheader: string; html: string; text: string; createdAt: string; updatedAt: string; eligibleCount: number };
 export type CampaignReviewEntry = { id: string; workspaceId: string; campaignId: string; campaignName: string; segmentId: string | null; segmentName: string; recipientCount: number; currentRecipientCount: number; createdAt: string };
 export type IntegrationEvent = { id: number; eventId: string; type: string; aggregateId: string; payload: Record<string, unknown>; createdAt: string };
@@ -49,7 +49,7 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS contacts (
     id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), email TEXT NOT NULL,
-    email_normalized TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', source TEXT NOT NULL,
+    email_normalized TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '', source TEXT NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('pending','confirmed','unsubscribed','bounced','complained')),
     consent_at TEXT, consent_evidence TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
     UNIQUE(workspace_id, email_normalized)
@@ -65,6 +65,9 @@ db.exec(`
     id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     name TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, button_label TEXT NOT NULL,
     consent_text TEXT NOT NULL, collect_name INTEGER NOT NULL DEFAULT 0, double_opt_in INTEGER NOT NULL DEFAULT 1,
+    collect_phone INTEGER NOT NULL DEFAULT 0, phone_required INTEGER NOT NULL DEFAULT 0,
+    page_color TEXT NOT NULL DEFAULT '#f5f8f6', card_color TEXT NOT NULL DEFAULT '#ffffff',
+    text_color TEXT NOT NULL DEFAULT '#20352c', button_color TEXT NOT NULL DEFAULT '#176b50', button_text_color TEXT NOT NULL DEFAULT '#ffffff',
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS signup_forms_workspace_idx ON signup_forms(workspace_id, updated_at);
@@ -135,6 +138,17 @@ db.exec(`
 const signupFormColumns = db.prepare('PRAGMA table_info(signup_forms)').all() as Array<{name:string}>;
 if (!signupFormColumns.some(column => column.name === 'double_opt_in')) {
   db.exec('ALTER TABLE signup_forms ADD COLUMN double_opt_in INTEGER NOT NULL DEFAULT 1');
+}
+const contactColumns = db.prepare('PRAGMA table_info(contacts)').all() as Array<{name:string}>;
+if (!contactColumns.some(column => column.name === 'phone')) db.exec("ALTER TABLE contacts ADD COLUMN phone TEXT NOT NULL DEFAULT ''");
+for (const [column, definition] of [
+  ['collect_phone', "INTEGER NOT NULL DEFAULT 0"], ['phone_required', "INTEGER NOT NULL DEFAULT 0"],
+  ['page_color', "TEXT NOT NULL DEFAULT '#f5f8f6'"], ['card_color', "TEXT NOT NULL DEFAULT '#ffffff'"],
+  ['text_color', "TEXT NOT NULL DEFAULT '#20352c'"], ['button_color', "TEXT NOT NULL DEFAULT '#176b50'"],
+  ['button_text_color', "TEXT NOT NULL DEFAULT '#ffffff'"],
+] as const) {
+  const columns = db.prepare('PRAGMA table_info(signup_forms)').all() as Array<{name:string}>;
+  if (!columns.some(existing => existing.name === column)) db.exec(`ALTER TABLE signup_forms ADD COLUMN ${column} ${definition}`);
 }
 db.prepare(`INSERT OR IGNORE INTO workspaces (id, name, product, created_at) VALUES (?, ?, ?, ?)`)
   .run('default', 'Meu workspace', '', new Date().toISOString());
@@ -223,9 +237,9 @@ export function createContact(input: Omit<Contact, 'createdAt' | 'updatedAt'>, t
       ? db.prepare(`SELECT id, name FROM workspace_tags WHERE workspace_id = ? AND id IN (${uniqueTagIds.map(() => '?').join(',')})`).all(input.workspaceId, ...uniqueTagIds) as Array<{id:string;name:string}>
       : [];
     if (tags.length !== uniqueTagIds.length) throw new Error('Uma ou mais tags não pertencem a este workspace.');
-    db.prepare(`INSERT INTO contacts (id, workspace_id, email, email_normalized, name, source, status, consent_at, consent_evidence, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(input.id, input.workspaceId, input.email, input.email.toLowerCase(), input.name, input.source, input.status, input.consentAt, input.consentEvidence, now, now);
+    db.prepare(`INSERT INTO contacts (id, workspace_id, email, email_normalized, name, phone, source, status, consent_at, consent_evidence, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(input.id, input.workspaceId, input.email, input.email.toLowerCase(), input.name, input.phone, input.source, input.status, input.consentAt, input.consentEvidence, now, now);
     const insertTag = db.prepare('INSERT INTO contact_tags (workspace_id, contact_id, tag_id, created_at) VALUES (?, ?, ?, ?)');
     for (const tag of tags) insertTag.run(input.workspaceId, input.id, tag.id, now);
     const contact = { ...input, createdAt: now, updatedAt: now };
@@ -251,7 +265,7 @@ export function importContacts(workspaceId: string, rows: Array<{ email: string;
       if (seen.has(normalized) || exists.get(workspaceId, normalized)) { duplicates++; continue; }
       seen.add(normalized);
       const id = randomUUID();
-      const contact: Contact = { id, workspaceId, email: row.email.trim(), name: row.name, source: row.source || 'importação CSV', status: 'pending', consentAt: null, consentEvidence: '', createdAt: now, updatedAt: now };
+      const contact: Contact = { id, workspaceId, email: row.email.trim(), name: row.name, phone: '', source: row.source || 'importação CSV', status: 'pending', consentAt: null, consentEvidence: '', createdAt: now, updatedAt: now };
       insert.run(id, workspaceId, contact.email, normalized, contact.name, contact.source, now, now);
       recordIntegrationEvent(workspaceId, 'contact.created', id, contact as unknown as Record<string, unknown>);
       imported++;
@@ -276,7 +290,7 @@ export function updateContactStatus(workspaceId: string, contactId: string, stat
       updated_at = ? WHERE workspace_id = ? AND id = ?`)
       .run(status, status, now, status, evidence, now, workspaceId, contactId);
     if (!changed.changes) { db.exec('ROLLBACK'); return null; }
-    const contact = db.prepare(`SELECT id, workspace_id AS workspaceId, email, name, source, status, consent_at AS consentAt,
+    const contact = db.prepare(`SELECT id, workspace_id AS workspaceId, email, name, phone, source, status, consent_at AS consentAt,
       consent_evidence AS consentEvidence, created_at AS createdAt, updated_at AS updatedAt FROM contacts WHERE id = ?`).get(contactId) as Contact;
     recordIntegrationEvent(workspaceId, 'contact.status_changed', contactId, { contactId, status, consentAt: contact.consentAt, updatedAt: now });
     db.exec('COMMIT');
@@ -293,7 +307,7 @@ export function recordContactResubscription(workspaceId: string, contactId: stri
     const changed = db.prepare(`UPDATE contacts SET status = 'confirmed', consent_at = ?, consent_evidence = ?, updated_at = ?
       WHERE workspace_id = ? AND id = ?`).run(now, evidence, now, workspaceId, contactId);
     if (!changed.changes) { db.exec('ROLLBACK'); return null; }
-    const contact = db.prepare(`SELECT id, workspace_id AS workspaceId, email, name, source, status, consent_at AS consentAt,
+    const contact = db.prepare(`SELECT id, workspace_id AS workspaceId, email, name, phone, source, status, consent_at AS consentAt,
       consent_evidence AS consentEvidence, created_at AS createdAt, updated_at AS updatedAt FROM contacts WHERE id = ?`).get(contactId) as Contact;
     recordIntegrationEvent(workspaceId, 'contact.resubscribed', contactId, { contactId, status: 'confirmed', consentAt: now, updatedAt: now, source: 'new_explicit_consent' });
     db.exec('COMMIT');

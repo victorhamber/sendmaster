@@ -1,6 +1,6 @@
 # Estado atual — SendMaster-App
 Atualizado: 2026-11-21
-- Feito: rascunhos, seleção de segmento e fila de revisão com contagem confirmada registrada e atualizada; supressões e link/headers no caminho interno de entrega.
-- Feito: modo de produção no Docker com bind externo condicionado a host público; formulário de login com sessão segura por sete dias, senha mínima de 8 caracteres e bloqueio temporário após falhas; SQLite persistido via volume.
-- Próximo: atualizar serviço Easypanel e validar domínio HTTPS e login.
-- Limite: webhooks não validados, campanhas não enviam e formulários públicos ainda não passaram por teste de abuso/rate limit.
+- Feito: formulários agora configuram telefone opcional/obrigatório e cinco cores, persistidos no SQLite e renderizados na prévia/página; contatos guardam e exibem telefone.
+- Feito: login web de produção no Easypanel, sessão por sete dias e volume SQLite persistente.
+- Próximo: publicar a atualização de formulários no Easypanel e conferir a tela autenticada.
+- Limite: formulários públicos continuam protegidos pelo login e sem rate limit; campanhas não enviam e webhooks não foram validados.

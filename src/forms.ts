@@ -2,24 +2,28 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createContact, db, type Contact, type SignupForm } from './storage.js';
 
-type FormInput = Pick<SignupForm, 'name' | 'title' | 'description' | 'buttonLabel' | 'consentText' | 'collectName' | 'doubleOptIn' | 'tagIds'>;
-type FormRow = Omit<SignupForm, 'tagIds' | 'collectName' | 'doubleOptIn'> & { collectName: number; doubleOptIn: number };
+type FormInput = Pick<SignupForm, 'name' | 'title' | 'description' | 'buttonLabel' | 'consentText' | 'collectName' | 'collectPhone' | 'phoneRequired' | 'doubleOptIn' | 'pageColor' | 'cardColor' | 'textColor' | 'buttonColor' | 'buttonTextColor' | 'tagIds'>;
+type FormRow = Omit<SignupForm, 'tagIds' | 'collectName' | 'collectPhone' | 'phoneRequired' | 'doubleOptIn'> & { collectName: number; collectPhone: number; phoneRequired: number; doubleOptIn: number };
 
 function withTags(row: FormRow): SignupForm {
   const tagIds = (db.prepare('SELECT tag_id AS id FROM signup_form_tags WHERE form_id = ? ORDER BY tag_id').all(row.id) as Array<{id:string}>).map(tag => tag.id);
-  return { ...row, collectName: Boolean(row.collectName), doubleOptIn: Boolean(row.doubleOptIn), tagIds };
+  return { ...row, collectName: Boolean(row.collectName), collectPhone: Boolean(row.collectPhone), phoneRequired: Boolean(row.phoneRequired), doubleOptIn: Boolean(row.doubleOptIn), tagIds };
 }
 
 export function listSignupForms(workspaceId: string): SignupForm[] {
   const rows = db.prepare(`SELECT id, workspace_id AS workspaceId, name, title, description, button_label AS buttonLabel,
-    consent_text AS consentText, collect_name AS collectName, double_opt_in AS doubleOptIn, created_at AS createdAt, updated_at AS updatedAt
+    consent_text AS consentText, collect_name AS collectName, double_opt_in AS doubleOptIn, collect_phone AS collectPhone, phone_required AS phoneRequired,
+    page_color AS pageColor, card_color AS cardColor, text_color AS textColor, button_color AS buttonColor, button_text_color AS buttonTextColor,
+    created_at AS createdAt, updated_at AS updatedAt
     FROM signup_forms WHERE workspace_id = ? ORDER BY updated_at DESC`).all(workspaceId) as FormRow[];
   return rows.map(withTags);
 }
 
 export function getSignupForm(formId: string): SignupForm | null {
   const row = db.prepare(`SELECT id, workspace_id AS workspaceId, name, title, description, button_label AS buttonLabel,
-    consent_text AS consentText, collect_name AS collectName, double_opt_in AS doubleOptIn, created_at AS createdAt, updated_at AS updatedAt
+    consent_text AS consentText, collect_name AS collectName, double_opt_in AS doubleOptIn, collect_phone AS collectPhone, phone_required AS phoneRequired,
+    page_color AS pageColor, card_color AS cardColor, text_color AS textColor, button_color AS buttonColor, button_text_color AS buttonTextColor,
+    created_at AS createdAt, updated_at AS updatedAt
     FROM signup_forms WHERE id = ?`).get(formId) as FormRow | undefined;
   return row ? withTags(row) : null;
 }
@@ -38,13 +42,15 @@ export function saveSignupForm(workspaceId: string, input: FormInput, formId?: s
       : [];
     if (tags.length !== tagIds.length) throw new Error('Uma ou mais tags não pertencem a este workspace.');
     if (formId) {
-      db.prepare(`UPDATE signup_forms SET name = ?, title = ?, description = ?, button_label = ?, consent_text = ?, collect_name = ?, double_opt_in = ?, updated_at = ? WHERE workspace_id = ? AND id = ?`)
-        .run(input.name, input.title, input.description, input.buttonLabel, input.consentText, input.collectName ? 1 : 0, input.doubleOptIn ? 1 : 0, now, workspaceId, id);
+      db.prepare(`UPDATE signup_forms SET name = ?, title = ?, description = ?, button_label = ?, consent_text = ?, collect_name = ?, double_opt_in = ?, collect_phone = ?, phone_required = ?, page_color = ?, card_color = ?, text_color = ?, button_color = ?, button_text_color = ?, updated_at = ? WHERE workspace_id = ? AND id = ?`)
+        .run(input.name, input.title, input.description, input.buttonLabel, input.consentText, input.collectName ? 1 : 0, input.doubleOptIn ? 1 : 0,
+          input.collectPhone ? 1 : 0, input.phoneRequired ? 1 : 0, input.pageColor, input.cardColor, input.textColor, input.buttonColor, input.buttonTextColor, now, workspaceId, id);
       db.prepare('DELETE FROM signup_form_tags WHERE workspace_id = ? AND form_id = ?').run(workspaceId, id);
     } else {
-      db.prepare(`INSERT INTO signup_forms (id, workspace_id, name, title, description, button_label, consent_text, collect_name, double_opt_in, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(id, workspaceId, input.name, input.title, input.description, input.buttonLabel, input.consentText, input.collectName ? 1 : 0, input.doubleOptIn ? 1 : 0, now, now);
+      db.prepare(`INSERT INTO signup_forms (id, workspace_id, name, title, description, button_label, consent_text, collect_name, double_opt_in, collect_phone, phone_required, page_color, card_color, text_color, button_color, button_text_color, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, workspaceId, input.name, input.title, input.description, input.buttonLabel, input.consentText, input.collectName ? 1 : 0, input.doubleOptIn ? 1 : 0,
+          input.collectPhone ? 1 : 0, input.phoneRequired ? 1 : 0, input.pageColor, input.cardColor, input.textColor, input.buttonColor, input.buttonTextColor, now, now);
     }
     const insert = db.prepare('INSERT INTO signup_form_tags (workspace_id, form_id, tag_id) VALUES (?, ?, ?)');
     for (const tag of tags) insert.run(workspaceId, id, tag.id);
@@ -57,12 +63,12 @@ export function deleteSignupForm(workspaceId: string, formId: string): boolean {
   return db.prepare('DELETE FROM signup_forms WHERE workspace_id = ? AND id = ?').run(workspaceId, formId).changes > 0;
 }
 
-export function submitSignupForm(formId: string, email: string, name: string): { contact: Contact; doubleOptIn: boolean } | null {
+export function submitSignupForm(formId: string, email: string, name: string, phone = ''): { contact: Contact; doubleOptIn: boolean } | null {
   const form = getSignupForm(formId);
   if (!form) return null;
   if (form.doubleOptIn) {
     const existing = db.prepare(`SELECT c.id, c.workspace_id AS workspaceId, c.email, c.name, c.source, c.status,
-      c.consent_at AS consentAt, c.consent_evidence AS consentEvidence, c.created_at AS createdAt, c.updated_at AS updatedAt
+      c.phone, c.consent_at AS consentAt, c.consent_evidence AS consentEvidence, c.created_at AS createdAt, c.updated_at AS updatedAt
       FROM signup_confirmation_tokens t JOIN contacts c ON c.id = t.contact_id
       WHERE t.form_id = ? AND c.workspace_id = ? AND c.email_normalized = ? AND c.status = 'pending'
       ORDER BY t.created_at DESC LIMIT 1`).get(formId, form.workspaceId, email.trim().toLowerCase()) as Contact | undefined;
@@ -70,7 +76,7 @@ export function submitSignupForm(formId: string, email: string, name: string): {
   }
   const now = new Date().toISOString();
   const contact = createContact({
-    id: randomUUID(), workspaceId: form.workspaceId, email, name,
+    id: randomUUID(), workspaceId: form.workspaceId, email, name: form.collectName ? name : '', phone: form.collectPhone ? phone : '',
     source: `Formulário: ${form.name}`.slice(0, 120), status: form.doubleOptIn ? 'pending' : 'confirmed', consentAt: form.doubleOptIn ? null : now,
     consentEvidence: `Checkbox aceito; formulário="${form.name}"; texto="${form.consentText}"; data=${now}`,
   }, form.tagIds);
