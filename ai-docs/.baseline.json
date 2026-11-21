@@ -4,7 +4,7 @@
 "AGENTS.md": "8d1da6b988b2",
 "Dockerfile": "85be1070b3d4",
 "README.md": "2c0e56c30f50",
-"app.js": "661b2c1a1ead",
+"app.js": "da97b870e099",
 "campaigns-ui.js": "e8facd441324",
 "index.html": "fdf6539dde77",
 "package-lock.json": "b4679e64f4a6",
@@ -17,10 +17,10 @@
 "src/mailer-settings.ts": "ca3029a090ec",
 "src/mailer.ts": "3338b083c4a8",
 "src/secret-store.ts": "c30a3dd2f641",
-"src/server.ts": "91f7feb03262",
+"src/server.ts": "18ade9accff7",
 "src/smtp-transport.ts": "cc743605eaee",
 "src/storage.ts": "974ade80f830",
 "src/suppressions.ts": "e6cf1c29529c",
-"styles.css": "0acce4276b0a",
+"styles.css": "3d160957473d",
 "tsconfig.json": "9131c09cb814"
 }
