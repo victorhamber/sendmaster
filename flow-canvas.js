@@ -1,6 +1,7 @@
 // Quadro de automação. Liga e-mail, espera e condição. Não envia.
 let flowLink = null;
 let flowZoom = 1;
+let flowPan = { x: 0, y: 0 };
 
 function placeFlowNodes() {
   const seen = new Set();
@@ -96,7 +97,7 @@ function paintFlow() {
       : '<button type="button" class="flow-port out" data-out="next" aria-label="Ligar próximo bloco"></button>';
     return `<article class="flow-node${flowLink?.id === node.id ? ' linking' : ''}" data-node="${node.id}" style="left:${node.x}px;top:${node.y}px"><header data-flow-drag><strong>${node.kind === 'email' ? 'E-mail' : node.kind === 'wait' ? 'Espera' : 'Condição'}</strong>${start}<button type="button" data-flow-remove="${node.id}" aria-label="Remover bloco">×</button></header>${body}<span class="flow-port in"></span>${outs}</article>`;
   }).join('')}`;
-  world.style.transform = `scale(${flowZoom})`;
+  world.style.transform = `translate(${flowPan.x}px, ${flowPan.y}px) scale(${flowZoom})`;
   world.querySelectorAll('[data-flow-email]').forEach(select => {
     select.value = sequenceDraft.nodes.find(node => node.id === select.dataset.flowEmail)?.campaignId || '';
     select.addEventListener('change', () => { sequenceDraft.nodes.find(node => node.id === select.dataset.flowEmail).campaignId = select.value; });
@@ -143,7 +144,7 @@ function paintFlow() {
 function mountFlowStudio() {
   const root = document.querySelector('#sequence-steps');
   if (!root) return;
-  root.innerHTML = `<div class="flow-studio"><aside class="flow-palette"><h2>Mensagens</h2><button type="button" draggable="true" data-flow-kind="email">E-mail</button><button type="button" draggable="true" data-flow-kind="wait">Espera</button><h2>Lógica</h2><button type="button" draggable="true" data-flow-kind="condition">Condição</button><p>Arraste para o quadro. Clique na bolinha e depois no próximo bloco. Sim fica verde. Não fica vermelho.</p></aside><div class="flow-stage" id="flow-stage"><div class="flow-world" id="flow-world"></div><div class="flow-zoom"><button type="button" id="flow-zoom-out" aria-label="Diminuir">−</button><button type="button" id="flow-zoom-in" aria-label="Aumentar">+</button></div></div></div>`;
+  root.innerHTML = `<div class="flow-studio"><aside class="flow-palette"><h2>Mensagens</h2><button type="button" draggable="true" data-flow-kind="email">E-mail</button><button type="button" draggable="true" data-flow-kind="wait">Espera</button><h2>Lógica</h2><button type="button" draggable="true" data-flow-kind="condition">Condição</button><p>Arraste para o quadro. Clique na bolinha e depois no próximo bloco. Arraste o fundo para mover.</p><form id="sequence-enroll" class="flow-enroll"><label>Sequência<select name="sequenceId" id="sequence-picker" required></select></label><label>Contato<select name="contactId" id="sequence-contact" required></select></label><button type="submit" class="button primary">Inscrever</button></form><div id="sequence-list" class="flow-list"></div></aside><div class="flow-stage" id="flow-stage"><div class="flow-world" id="flow-world"></div><div class="flow-zoom"><button type="button" id="flow-zoom-out" aria-label="Diminuir">−</button><button type="button" id="flow-zoom-in" aria-label="Aumentar">+</button></div></div></div>`;
   const stage = root.querySelector('#flow-stage');
   stage.addEventListener('dragover', event => event.preventDefault());
   stage.addEventListener('drop', event => {
@@ -154,6 +155,22 @@ function mountFlowStudio() {
     addFlowNode(kind, Math.max(0, Math.round((event.clientX - rect.left) / flowZoom)), Math.max(0, Math.round((event.clientY - rect.top) / flowZoom)));
   });
   root.querySelectorAll('[data-flow-kind]').forEach(button => button.addEventListener('dragstart', event => event.dataTransfer.setData('text/plain', button.dataset.flowKind)));
+  stage.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || event.target.closest('.flow-node, button')) return;
+    const originX = flowPan.x;
+    const originY = flowPan.y;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const move = ev => {
+      flowPan.x = originX + ev.clientX - startX;
+      flowPan.y = originY + ev.clientY - startY;
+      const world = root.querySelector('#flow-world');
+      if (world) world.style.transform = `translate(${flowPan.x}px, ${flowPan.y}px) scale(${flowZoom})`;
+    };
+    const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+  });
   root.querySelector('#flow-zoom-in').addEventListener('click', () => { flowZoom = Math.min(1.4, Math.round((flowZoom + 0.1) * 10) / 10); paintFlow(); });
   root.querySelector('#flow-zoom-out').addEventListener('click', () => { flowZoom = Math.max(0.6, Math.round((flowZoom - 0.1) * 10) / 10); paintFlow(); });
   paintFlow();

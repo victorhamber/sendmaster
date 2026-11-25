@@ -8,20 +8,15 @@ function renderSequences() {
   document.querySelector('#crumb').textContent = 'Automações';
   document.title = 'SendMaster — Automações';
   document.querySelectorAll('.nav-item').forEach(link => link.classList.toggle('active', link.dataset.view === 'automacoes'));
-  document.querySelector('#app').innerHTML = `<div class="page-head"><div><div class="eyebrow">JORNADAS</div><h1>Automações</h1><p>Arraste os blocos, ligue a saída no próximo e salve. A condição tem caminho sim e não. Inscrever não envia.</p></div></div>
-    <section class="panel"><form id="sequence-form"><div class="campaign-fields"><label>Nome<input name="name" required maxlength="100" placeholder="Ex.: Boas-vindas"></label></div>
-      <div id="sequence-steps"></div>
-      <div class="campaign-editor-actions"><span id="sequence-feedback" role="status">Comece com um e-mail já salvo em Campanhas.</span><button type="submit" class="button primary">Salvar sequência</button></div></form></section>
-    <section class="panel"><div class="panel-title">Inscrever contato confirmado</div><form id="sequence-enroll" class="campaign-fields"><label>Sequência<select name="sequenceId" id="sequence-picker" required></select></label><label>Contato<select name="contactId" id="sequence-contact" required></select></label><div class="full"><button type="submit" class="button primary">Inscrever</button></div></form></section>
-    <section class="panel"><div id="sequence-list">Carregando…</div></section>`;
+  document.querySelector('#app').innerHTML = `<div class="flow-page"><form id="sequence-form" class="flow-bar"><label>Nome<input name="name" required maxlength="100" placeholder="Ex.: Boas-vindas"></label><span id="sequence-feedback" role="status">Comece com um e-mail já salvo em Campanhas.</span><button type="submit" class="button primary">Salvar sequência</button></form><div id="sequence-steps"></div></div>`;
   document.querySelector('#sequence-form').addEventListener('submit', saveSequenceForm);
-  document.querySelector('#sequence-enroll').addEventListener('submit', enrollSequenceForm);
   sequenceDraft = { start: 's1', nodes: [{ id: 's1', kind: 'email', campaignId: '', next: null }] };
   void loadSequencePage();
 }
 
 function drawSequenceSteps() {
   mountFlowStudio();
+  document.querySelector('#sequence-enroll')?.addEventListener('submit', enrollSequenceForm);
 }
 
 function flowLabel(flow) {
@@ -66,7 +61,7 @@ async function enrollSequenceForm(event) {
 }
 
 function sequencesView(key) {
-  document.querySelector('.content')?.classList.toggle('content-wide', key === 'automacoes');
+  document.querySelector('.content')?.classList.toggle('content-flow', key === 'automacoes');
   if (key === 'automacoes') return renderSequences();
   return sequencesPreviousView(key);
 }
