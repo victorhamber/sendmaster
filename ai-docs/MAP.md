@@ -1,7 +1,7 @@
-# MAP — SendMaster-App · 2026-11-25 · 49 arquivos · 5085 linhas
+# MAP — SendMaster-App · 2026-11-25 · 53 arquivos · 5380 linhas
 > Gerado por ai-docs/tools/map_repo.py — NÃO editar. Use isto em vez de ler o código inteiro: ache o arquivo/símbolo aqui e abra só o trecho.
 Stack: node
-Entradas: npm scripts: dev, start, typecheck, test
+Entradas: npm scripts: dev, start, typecheck, test, build:flow
 
 ## (raiz)/
 - .dockerignore [16L] .sqlite-shm
@@ -13,14 +13,17 @@ Entradas: npm scripts: dev, start, typecheck, test
 - email-builder.js [152L] Construtor em tela cheia. Os blocos viram o HTML do rascunho. — mailHost(), openEmailBuilder(), applyMailLayout(), drawMailSheet()
 - email-layout.d.ts [3L] — renderEmailHtml(), renderEmailText()
 - email-layout.js [106L] HTML de e-mail a partir de blocos. Só https entra em link e imagem. — escapeEmail(), httpsUrl(), cleanHtml(), clamp(), hex(), fontStack(), alignOf(), textStyle(), linked(), blockRow(), renderEmailHtml(), renderEmailText()
-- flow-canvas.js [178L] Quadro de automação. Liga e-mail, espera e condição. Não envia. — placeFlowNodes(), flowCurve(), flowWires(), addFlowNode(), removeFlowNode(), reaches(), paintFlow(), mountFlowStudio()
-- index.html [42L]
-- package-lock.json [567L]
-- package.json [21L]
+- flow-canvas.js [13L] Casca da página. O quadro em si é o React Flow. — mountFlowStudio()
+- flow-editor.bundle.css [2L]
+- flow-editor.jsx [64L] — EmailNode(), WaitNode(), ConditionNode(), edgeStyle(), Canvas()
+- flow-model.js [57L] Converte a sequência salva no grafo do React Flow e de volta. — draftToGraph(), blank(), graphToDraft()
+- index.html [44L]
+- package-lock.json [868L]
+- package.json [26L]
 - providers-ui.js [8L] — integrationsPage(), renderMailerProviders(), renderMailerFields(), captureMailerDraft(), refreshMailerSettings(), initMailerSettings()
 - reports-ui.js [51L] Relatório de campanha. Os números vêm das mensagens já enviadas. — reportRate(), renderReports(), loadReports(), downloadReport(), reportsView()
 - sequences-ui.js [69L] Fluxo horizontal com um ramo sim/não. Inscrever só grava a fila. — renderSequences(), drawSequenceSteps(), flowLabel(), loadSequencePage(), saveSequenceForm(), enrollSequenceForm(), sequencesView()
-- styles.css [82L]
+- styles.css [87L]
 - tsconfig.json [13L]
 
 ## .impeccable/
@@ -35,6 +38,7 @@ Entradas: npm scripts: dev, start, typecheck, test
 - dns-check.test.ts [22L]
 - dns-check.ts [41L] Lê SPF, DMARC e DKIM já publicados. O valor continua vindo do provedor. — firstMatch(), judgeDns(), textRecords(), lookupDomainAuth()
 - email-layout.test.ts [30L]
+- flow-model.test.ts [24L]
 - forms.ts [131L] Workspace form configuration and local signup capture. — withTags(), listSignupForms(), getSignupForm(), saveSignupForm(), deleteSignupForm(), submitSignupForm(), issueSignupConfirmation(), confirmSignupToken()
 - mailer-settings.ts [79L] Per-workspace mail provider catalog and local connection settings. — readStoredSettings(), isMailProviderId(), getMailSettings(), readMailCredentials(), saveMailSettings()
 - mailer.ts [135L] One-recipient email transport adapters ported from the original WordPress plugin — addr(), named(), requestFor(), responseMessageId(), sendWorkspaceEmail()

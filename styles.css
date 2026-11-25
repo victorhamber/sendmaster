@@ -34,8 +34,13 @@
 .flow-enroll label{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;color:#c9ddd2;font-size:11px;font-weight:600}
 .flow-enroll select{height:36px;padding:0 8px;border:1px solid #345044;border-radius:7px;background:#101614;color:#e7f2eb;font:12px 'DM Sans'}
 .flow-enroll button{cursor:pointer;text-align:center}
-.flow-stage{position:relative;min-height:0;overflow:hidden;background-image:radial-gradient(#24342c 1px,transparent 1px);background-size:22px 22px;cursor:grab}
-.flow-world{position:absolute;left:0;top:0;width:1800px;height:980px;transform-origin:0 0}
+.flow-stage{position:relative;min-height:0;height:100%;overflow:hidden;background:#121816}
+.flow-react,.flow-react .react-flow{width:100%;height:100%}
+.sm-node{width:220px;padding:12px;border:1px solid #31483c;border-radius:12px;background:#1c2620;color:#e7f2eb}
+.sm-node header{margin-bottom:8px;font-size:13px}
+.sm-node select,.sm-node input{width:100%;height:36px;padding:0 8px;border:1px solid #345044;border-radius:7px;background:#101614;color:#e7f2eb;font:13px 'DM Sans'}
+.sm-yes,.sm-no{position:absolute;right:18px;font-size:11px}
+.sm-yes{top:34px;color:#3dce8a}.sm-no{top:66px;color:#e07a72}
 .flow-wires{position:absolute;inset:0;pointer-events:none}
 .flow-node{position:absolute;width:240px;padding:12px 12px 14px;border:1px solid #31483c;border-radius:12px;background:#1c2620;box-shadow:0 10px 24px #0006}
 .flow-node.linking{border-color:#3dce8a}
