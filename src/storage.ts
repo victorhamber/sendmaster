@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
-export type Workspace = { id: string; name: string; product: string; createdAt: string };
+export type Workspace = { id: string; name: string; product: string; companyName: string; privacyUrl: string; termsUrl: string; createdAt: string };
 export type Brief = { id: string; name: string; data: Record<string, string>; updatedAt: string };
 export type Domains = { sending: string; tracking: string };
 export type ContactStatus = 'pending' | 'confirmed' | 'unsubscribed' | 'bounced' | 'complained';
@@ -200,6 +200,10 @@ if (!messageColumns.some(column => column.name === 'opened_at')) db.exec('ALTER 
 if (!messageColumns.some(column => column.name === 'open_count')) db.exec('ALTER TABLE campaign_messages ADD COLUMN open_count INTEGER NOT NULL DEFAULT 0');
 const enrollmentColumns = db.prepare('PRAGMA table_info(sequence_enrollments)').all() as Array<{name:string}>;
 if (enrollmentColumns.length && !enrollmentColumns.some(column => column.name === 'step_id')) db.exec('ALTER TABLE sequence_enrollments ADD COLUMN step_id TEXT');
+const workspaceColumns = db.prepare('PRAGMA table_info(workspaces)').all() as Array<{name:string}>;
+for (const column of ['company_name', 'privacy_url', 'terms_url']) {
+  if (!workspaceColumns.some(existing => existing.name === column)) db.exec(`ALTER TABLE workspaces ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`);
+}
 for (const [column, definition] of [
   ['collect_phone', "INTEGER NOT NULL DEFAULT 0"], ['phone_required', "INTEGER NOT NULL DEFAULT 0"],
   ['page_color', "TEXT NOT NULL DEFAULT '#f5f8f6'"], ['card_color', "TEXT NOT NULL DEFAULT '#ffffff'"],
@@ -214,7 +218,7 @@ db.prepare(`INSERT OR IGNORE INTO workspaces (id, name, product, created_at) VAL
 db.prepare(`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('active_workspace_id', 'default')`).run();
 
 export function readState(): AppState {
-  const workspaces = db.prepare('SELECT id, name, product, created_at AS createdAt FROM workspaces ORDER BY created_at')
+  const workspaces = db.prepare('SELECT id, name, product, company_name AS companyName, privacy_url AS privacyUrl, terms_url AS termsUrl, created_at AS createdAt FROM workspaces ORDER BY created_at')
     .all() as Workspace[];
   const active = db.prepare('SELECT value FROM app_settings WHERE key = ?').get('active_workspace_id') as { value: string } | undefined;
   const briefsByWorkspace: Record<string, Brief[]> = {};
@@ -255,6 +259,12 @@ export function importLegacy(payload: Partial<AppState>): void {
 export function createWorkspace(workspace: Workspace): void {
   db.prepare('INSERT INTO workspaces (id, name, product, created_at) VALUES (?, ?, ?, ?)')
     .run(workspace.id, workspace.name, workspace.product, workspace.createdAt);
+}
+
+export function saveCompany(workspaceId: string, companyName: string, privacyUrl: string, termsUrl: string): boolean {
+  const result = db.prepare('UPDATE workspaces SET company_name = ?, privacy_url = ?, terms_url = ? WHERE id = ?')
+    .run(companyName, privacyUrl, termsUrl, workspaceId);
+  return result.changes > 0;
 }
 
 export function setActiveWorkspace(workspaceId: string): boolean {

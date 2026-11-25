@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createSegment, createTag, deleteSegment, deleteTag, listContactSources, listContacts, listSegments, listTags, setContactTags } from './audience.js';
-import { createContact, createWorkspace, importContacts, importLegacy, linkContactExternalId, listIntegrationEvents, readState, recordContactResubscription, saveBrief, saveDomains, setActiveWorkspace, updateContactStatus, type Brief, type ContactStatus, type Domains, type SegmentFilters, type Workspace } from './storage.js';
+import { createContact, createWorkspace, importContacts, importLegacy, linkContactExternalId, listIntegrationEvents, readState, recordContactResubscription, saveBrief, saveCompany, saveDomains, setActiveWorkspace, updateContactStatus, type Brief, type ContactStatus, type Domains, type SegmentFilters, type Workspace } from './storage.js';
 import { confirmSignupToken, deleteSignupForm, getSignupForm, issueSignupConfirmation, listSignupForms, saveSignupForm, submitSignupForm } from './forms.js';
 import { sendWorkspaceEmail } from './mailer.js';
 import { deleteEmailTemplate, listEmailTemplates, saveEmailTemplate } from './templates.js';
@@ -391,8 +391,25 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       if (req.method === 'POST' && url.pathname === '/api/workspaces') {
         const body = await readJson(req); const name = typeof body.name === 'string' ? body.name.trim() : '';
         if (!name || name.length > 80) return sendJson(res, 400, { error: 'Nome do workspace inválido.' });
-        const workspace: Workspace = { id: randomUUID(), name, product: typeof body.product === 'string' ? body.product.trim().slice(0, 120) : '', createdAt: new Date().toISOString() };
+        const workspace: Workspace = { id: randomUUID(), name, product: typeof body.product === 'string' ? body.product.trim().slice(0, 120) : '', companyName: '', privacyUrl: '', termsUrl: '', createdAt: new Date().toISOString() };
         createWorkspace(workspace); setActiveWorkspace(workspace.id); return sendJson(res, 201, { workspace, state: readState() });
+      }
+      const companyMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/company$/);
+      if (req.method === 'PUT' && companyMatch) {
+        const id = decodeURIComponent(companyMatch[1]);
+        const body = await readJson(req);
+        const companyName = typeof body.companyName === 'string' ? body.companyName.trim().slice(0, 80) : '';
+        const httpsOrEmpty = (value: unknown) => {
+          if (typeof value !== 'string' || !value.trim()) return '';
+          try {
+            const parsed = new URL(value.trim());
+            return parsed.protocol === 'https:' && !parsed.username && !parsed.password ? parsed.toString().slice(0, 300) : null;
+          } catch { return null; }
+        };
+        const privacyUrl = httpsOrEmpty(body.privacyUrl);
+        const termsUrl = httpsOrEmpty(body.termsUrl);
+        if (privacyUrl === null || termsUrl === null) return sendJson(res, 400, { error: 'Política e termos precisam ser um link https ou ficar vazios.' });
+        return saveCompany(id, companyName, privacyUrl, termsUrl) ? sendJson(res, 200, readState()) : sendJson(res, 404, { error: 'Workspace não encontrado.' });
       }
       const activeMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/active$/);
       if (req.method === 'PUT' && activeMatch) {

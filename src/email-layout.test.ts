@@ -26,4 +26,16 @@ test('o construtor escapa texto, aceita só https e tira script', () => {
   assert.match(styled, /href="https:\/\/site\.example\/oi"/);
   assert.match(styled, /background:#445566/);
   assert.doesNotMatch(styled, /url\(x\)|font-size:99px/);
+  const branded = renderEmailHtml([
+    { type: 'social', networks: [{ type: 'facebook', url: 'https://facebook.com/acme' }, { type: 'instagram', url: 'http://inseguro.example' }] },
+    { type: 'footer', text: 'nota' },
+  ], { company: 'Acme Ltda', privacyUrl: 'https://acme.example/privacidade', termsUrl: 'https://acme.example/termos' });
+  assert.match(branded, /data:image\/png;base64,/);
+  assert.match(branded, /alt="Facebook"/);
+  assert.doesNotMatch(branded, />Facebook</);
+  assert.match(branded, /Acme Ltda/);
+  assert.match(branded, /href="\{\{descadastro\}\}"/);
+  assert.match(branded, /href="https:\/\/acme\.example\/privacidade"/);
+  assert.match(branded, /href="https:\/\/acme\.example\/termos"/);
+  assert.doesNotMatch(branded, /http:\/\/inseguro/);
 });

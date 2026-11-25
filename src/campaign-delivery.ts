@@ -24,8 +24,9 @@ export async function sendCampaignToContact(workspaceId: string, campaignId: str
   const unsubscribeUrl = createUnsubscribeUrl(workspaceId, recipient.id, baseUrl);
   const safeUrl = escapeHtml(unsubscribeUrl);
   const tracked = trackMessage(messageId, withPreheader(personalize(campaign.html, person, true), personalize(campaign.preheader, person, true)), personalize(campaign.text, person, false), baseUrl);
-  const html = `${tracked.html}<hr><p style="font-size:12px;color:#59675e">Você está recebendo esta mensagem porque autorizou e-mails deste produto. <a href="${safeUrl}">Cancelar inscrição</a>.</p>`;
-  const text = `${tracked.text}\n\nVocê está recebendo esta mensagem porque autorizou e-mails deste produto.\nCancelar inscrição: ${unsubscribeUrl}`;
+  const hasFooterLink = tracked.html.includes('{{descadastro}}') || tracked.text.includes('{{descadastro}}');
+  const html = hasFooterLink ? tracked.html.replaceAll('{{descadastro}}', safeUrl) : `${tracked.html}<hr><p style="font-size:12px;color:#59675e">Você está recebendo esta mensagem porque autorizou e-mails deste produto. <a href="${safeUrl}">Cancelar inscrição</a>.</p>`;
+  const text = hasFooterLink ? tracked.text.replaceAll('{{descadastro}}', unsubscribeUrl) : `${tracked.text}\n\nVocê está recebendo esta mensagem porque autorizou e-mails deste produto.\nCancelar inscrição: ${unsubscribeUrl}`;
   return sendWorkspaceEmail(workspaceId, {
     to: { email: recipient.email, name: recipient.name },
     subject: personalize(campaign.subject, person, false),

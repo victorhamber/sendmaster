@@ -1,5 +1,5 @@
 # Estado atual — SendMaster-App
 Atualizado: 2026-11-25.
-- Feito: a automação em React Flow encosta na direita e no fim da página. O construtor ajusta fonte, tamanho, cor e link.
+- Feito: o rodapé usa a empresa do workspace, com prévia, ícones e painel de largura ajustável.
 - Próximo: publicar esta versão no Easypanel. O valor de SPF e DKIM continua saindo do provedor.
 - Limite: o quadro só tem e-mail, espera e condição. Bounce automático só no Mailgun, Resend, MailerSend e SparkPost.

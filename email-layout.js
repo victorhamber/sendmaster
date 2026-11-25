@@ -1,4 +1,5 @@
 // HTML de e-mail a partir de blocos. Só https entra em link e imagem.
+import { socialIcons } from './social-icons.js';
 
 function escapeEmail(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -57,7 +58,24 @@ function blockRow(block, inner) {
   return `<tr><td style="padding:${top}px 28px ${bottom}px;text-align:${alignOf(block)};font-family:Georgia,serif;color:#20352c">${inner}</td></tr>`;
 }
 
-export function renderEmailHtml(blocks) {
+const socialNames = { facebook: 'Facebook', instagram: 'Instagram', linkedin: 'LinkedIn', x: 'X', youtube: 'YouTube', website: 'Site' };
+
+function socialItems(block) {
+  if (Array.isArray(block.networks)) return block.networks;
+  return [{ type: 'facebook', url: block.url }, { type: 'instagram', url: block.url2 }, { type: 'linkedin', url: block.url3 }];
+}
+
+function socialHtml(block) {
+  return socialItems(block).slice(0, 6).map(item => {
+    const href = httpsUrl(item?.url);
+    const icon = socialIcons[item?.type];
+    if (!href || !icon) return '';
+    const name = socialNames[item.type] || 'Rede';
+    return `<a href="${escapeEmail(href)}" style="display:inline-block;margin:0 6px"><img src="data:image/png;base64,${icon}" alt="${name}" width="32" height="32" style="display:block;border:0"></a>`;
+  }).join('');
+}
+
+export function renderEmailHtml(blocks, options = {}) {
   const rows = (Array.isArray(blocks) ? blocks : []).slice(0, 30).map(block => {
     const text = escapeEmail(block.text || '');
     const href = httpsUrl(block.url);
@@ -80,25 +98,38 @@ export function renderEmailHtml(blocks) {
     }
     if (block.type === 'columns') return blockRow(block, `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td width="50%" valign="top" style="padding-right:8px;font-size:15px;line-height:1.5">${escapeEmail(block.left || '')}</td><td width="50%" valign="top" style="padding-left:8px;font-size:15px;line-height:1.5">${escapeEmail(block.right || '')}</td></tr></table>`);
     if (block.type === 'social') {
-      const links = [['Facebook', block.url], ['Instagram', block.url2], ['LinkedIn', block.url3]]
-        .map(([name, raw]) => (httpsUrl(raw) ? `<a href="${escapeEmail(httpsUrl(raw))}" style="color:#176b50;margin-right:12px;font-family:Arial,sans-serif">${name}</a>` : ''))
-        .join('');
+      const links = socialHtml(block);
       return links ? blockRow(block, links) : '';
     }
     if (block.type === 'html') return blockRow(block, cleanHtml(block.html));
-    if (block.type === 'footer') return blockRow(block, `<p style="${textStyle(block, 12, '#65736a')}">${text || 'Você recebe este e-mail porque pediu.'}</p>`);
+    if (block.type === 'footer') {
+      const company = escapeEmail(options.company || 'Sua empresa');
+      const privacy = httpsUrl(options.privacyUrl);
+      const terms = httpsUrl(options.termsUrl);
+      const links = [
+        '<a href="{{descadastro}}" style="color:inherit;text-decoration:underline">Cancelar inscrição</a>',
+        privacy ? `<a href="${escapeEmail(privacy)}" style="color:inherit;text-decoration:underline">Política de privacidade</a>` : '',
+        terms ? `<a href="${escapeEmail(terms)}" style="color:inherit;text-decoration:underline">Termos</a>` : '',
+      ].filter(Boolean).join(' · ');
+      const note = text ? `<p style="${textStyle(block, 12, '#65736a')}">${text}</p>` : '';
+      return blockRow(block, `${note}<p style="${textStyle(block, 12, '#65736a')}">${company}</p><p style="margin:8px 0 0;font:12px Arial,sans-serif;color:#65736a">${links}</p>`);
+    }
     return '';
   }).join('');
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff">${rows}</table>`;
 }
 
-export function renderEmailText(blocks) {
+export function renderEmailText(blocks, options = {}) {
   return (Array.isArray(blocks) ? blocks : []).slice(0, 30).map(block => {
     if (block.type === 'button') return `${block.text || 'Abrir'}${httpsUrl(block.url) ? `: ${httpsUrl(block.url)}` : ''}`;
     if (block.type === 'image') return httpsUrl(block.url);
     if (block.type === 'columns') return [block.left, block.right].filter(Boolean).join('\n');
-    if (block.type === 'social') return [block.url, block.url2, block.url3].map(httpsUrl).filter(Boolean).join('\n');
+    if (block.type === 'social') return socialItems(block).map(item => httpsUrl(item?.url)).filter(Boolean).join('\n');
     if (block.type === 'html') return cleanHtml(block.html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (block.type === 'footer') {
+      const links = [options.privacyUrl, options.termsUrl].map(httpsUrl).filter(Boolean);
+      return [options.company || 'Sua empresa', ['Cancelar inscrição: {{descadastro}}', ...links].join(' ')].join('\n');
+    }
     if (block.type === 'divider' || block.type === 'spacer') return '';
     return block.text || '';
   }).filter(Boolean).join('\n\n');

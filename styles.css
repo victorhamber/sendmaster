@@ -63,15 +63,17 @@
 .flow-zoom{position:absolute;right:12px;bottom:12px;display:flex;gap:6px}
 .flow-zoom button{width:36px;height:36px;border:1px solid #31483c;border-radius:8px;background:#1c2620;color:#e7f2eb;font-size:18px;cursor:pointer}
 #open-email-builder{margin:0 0 14px}
-.mail-studio{position:fixed;inset:0;z-index:40;display:grid;grid-template-columns:240px minmax(0,1fr) 280px;grid-template-rows:64px minmax(0,1fr);background:#eef2ef}
+.mail-studio{position:fixed;inset:0;z-index:40;display:grid;grid-template-columns:240px minmax(0,1fr) var(--mail-props,280px);grid-template-rows:64px minmax(0,1fr);background:#eef2ef}
 .mail-studio[hidden]{display:none}
 .mail-studio-bar{grid-column:1/-1;display:flex;align-items:center;gap:16px;padding:0 18px;background:#fff;border-bottom:1px solid #e1e8e3}
 .mail-studio-bar strong{font:700 16px Manrope,sans-serif}
-.mail-studio-bar .button.primary{margin-left:auto}
-.mail-palette,.mail-props{padding:16px;background:#fff;overflow:auto}
+.mail-studio-actions{margin-left:auto;display:flex;gap:8px}
+.mail-palette{padding:16px;background:#fff;overflow:auto}
+.mail-props{position:relative;display:flex;min-width:0;background:#fff;border-left:1px solid #e1e8e3;overflow:hidden}
+#mail-fields{flex:1;min-width:0;padding:16px;overflow:auto}
+.mail-resizer{position:absolute;left:0;top:0;bottom:0;width:8px;cursor:col-resize;z-index:2}
 .mail-palette{border-right:1px solid #e1e8e3}
-.mail-props{border-left:1px solid #e1e8e3}
-.mail-palette h2,.mail-props h2{margin:16px 0 8px;color:#176b50;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.mail-palette h2,#mail-fields h2{margin:16px 0 8px;color:#176b50;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
 .mail-palette p,.mail-props p{margin:0;color:#65736a;font-size:12px;line-height:1.5}
 .mail-palette button{display:block;width:100%;height:40px;margin-bottom:8px;padding:0 12px;border:1px solid #d7e1da;border-radius:8px;background:#fff;color:#304037;font:600 13px 'DM Sans';text-align:left;cursor:grab}
 .mail-stage{overflow:auto;padding:28px 16px 48px;background:#dfe6e1}
@@ -84,7 +86,16 @@
 .flow-page > #sequence-steps{display:flex;flex:1;min-height:0;min-width:0;width:100%}
 .mail-props select,.mail-props input,.mail-props textarea{width:100%;height:39px;padding:0 10px;border:1px solid #d7e1da;border-radius:7px;color:#304037;font:13px 'DM Sans';background:#fff}
 .mail-props input[type=color]{padding:4px}
-.mail-check{flex-direction:row;align-items:center}
+.mail-toggles{display:flex;gap:8px;margin-top:12px}
+.mail-props .mail-check{flex:1;flex-direction:row;align-items:center;margin-top:0}
 .mail-check input{width:16px;height:16px;padding:0}
+.mail-network{display:grid;grid-template-columns:108px minmax(0,1fr) 28px;gap:6px;align-items:center;margin-top:8px}
+.mail-network button{height:39px;border:1px solid #d7e1da;border-radius:7px;background:#fff;cursor:pointer}
+.mail-preview-frame{width:min(640px,100%);height:720px;border:0;background:#fff}
+.company-dialog{position:fixed;z-index:50;left:50%;top:80px;width:min(420px,calc(100% - 32px));transform:translateX(-50%);display:flex;flex-direction:column;gap:12px;padding:20px;background:#fff;border:1px solid #d7e1da;border-radius:14px;box-shadow:0 16px 40px rgba(32,53,44,.16)}
+.company-dialog h2{margin:0;font:700 18px Manrope,sans-serif}
+.company-dialog label{display:flex;flex-direction:column;gap:6px;color:#45534a;font-size:12px;font-weight:600}
+.company-dialog input{height:39px;padding:0 10px;border:1px solid #d7e1da;border-radius:7px;font:14px 'DM Sans'}
+.company-actions{display:flex;justify-content:flex-end;gap:8px}
 .mail-props textarea{min-height:96px;resize:vertical}
 .domain-check-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}.domain-check-list .domain-record{align-items:flex-start}

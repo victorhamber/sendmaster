@@ -1,0 +1,2 @@
+export function draftToGraph(draft: { start?: string; nodes?: Array<Record<string, unknown>> }): { nodes: Array<Record<string, unknown>>; edges: Array<{ sourceHandle?: string }> };
+export function graphToDraft(draft: { start?: string; nodes?: Array<Record<string, unknown>> }, nodes: Array<Record<string, unknown>>, edges: Array<Record<string, unknown>>): { start: string; nodes: Array<{ id: string; x?: number; yes?: string | null; no?: string | null }> };

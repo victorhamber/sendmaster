@@ -25,7 +25,7 @@ Propósito: contrato para o SendMaster virar email marketing completo, sem fork 
 8. Feito: quadro com e-mail, espera e ramo sim/não. O avanço só enfileira. O DNS publicado é lido em `src/dns-check.ts`.
 
 ## Invariantes
-- Envio de campanha não acontece dentro do request HTTP. O clique em Enfileirar só grava a fila. Data futura espera; data vazia ou passada entra no próximo ciclo. A sequência também só enfileira. Mensagem presa em `sending` por mais de 2 minutos volta para a fila. O pré-cabeçalho entra oculto no HTML.
+- Envio de campanha não acontece dentro do request HTTP. O clique em Enfileirar só grava a fila. Data futura espera; data vazia ou passada entra no próximo ciclo. A sequência também só enfileira. Mensagem presa em `sending` por mais de 2 minutos volta para a fila. O rodapé troca `{{descadastro}}` pelo link real.
 - A revisão guarda contagem; não é fila nem trava de destinatário.
 - Reativar suprimido continua exigindo evidência de novo consentimento.
 - O login administra o app. Formulário, confirmação e descadastro são públicos, com limite de repetição e CSP. O painel e a API de gestão continuam na sessão.
