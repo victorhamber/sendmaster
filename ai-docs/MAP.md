@@ -1,4 +1,4 @@
-# MAP — SendMaster-App · 2026-11-25 · 53 arquivos · 5380 linhas
+# MAP — SendMaster-App · 2026-11-25 · 53 arquivos · 5384 linhas
 > Gerado por ai-docs/tools/map_repo.py — NÃO editar. Use isto em vez de ler o código inteiro: ache o arquivo/símbolo aqui e abra só o trecho.
 Stack: node
 Entradas: npm scripts: dev, start, typecheck, test, build:flow
@@ -23,7 +23,7 @@ Entradas: npm scripts: dev, start, typecheck, test, build:flow
 - providers-ui.js [8L] — integrationsPage(), renderMailerProviders(), renderMailerFields(), captureMailerDraft(), refreshMailerSettings(), initMailerSettings()
 - reports-ui.js [51L] Relatório de campanha. Os números vêm das mensagens já enviadas. — reportRate(), renderReports(), loadReports(), downloadReport(), reportsView()
 - sequences-ui.js [69L] Fluxo horizontal com um ramo sim/não. Inscrever só grava a fila. — renderSequences(), drawSequenceSteps(), flowLabel(), loadSequencePage(), saveSequenceForm(), enrollSequenceForm(), sequencesView()
-- styles.css [87L]
+- styles.css [91L]
 - tsconfig.json [13L]
 
 ## .impeccable/
