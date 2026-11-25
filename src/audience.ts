@@ -82,20 +82,34 @@ export function listContacts(workspaceId: string, filters: SegmentFilters): Cont
   return contacts.map(contact => Object.assign(contact, { tags: byContact.get(contact.id) ?? [] }));
 }
 
-export function countEligibleContacts(workspaceId: string, filters?: SegmentFilters): number {
+function confirmedAudience(workspaceId: string, filters?: SegmentFilters): { sql: string; params: string[] } | null {
   const search = filters?.search.trim().toLowerCase() ?? '';
-  const query = `%${search}%`;
   const status = filters?.status ?? '';
-  if (status && status !== 'confirmed') return 0;
+  if (status && status !== 'confirmed') return null;
   const source = filters?.source ?? '';
   const tagId = filters?.tagId ?? '';
-  const result = db.prepare(`SELECT COUNT(*) AS count FROM contacts c
-    WHERE c.workspace_id = ? AND c.status = 'confirmed'
+  const query = `%${search}%`;
+  return {
+    sql: `c.workspace_id = ? AND c.status = 'confirmed'
       AND (? = '' OR c.email_normalized LIKE ? OR lower(c.name) LIKE ?)
       AND (? = '' OR c.source = ?) AND (? = '' OR EXISTS (
         SELECT 1 FROM contact_tags ct WHERE ct.workspace_id = c.workspace_id AND ct.contact_id = c.id AND ct.tag_id = ?
-      ))`).get(workspaceId, search, query, query, source, source, tagId, tagId) as {count:number};
+      ))`,
+    params: [workspaceId, search, query, query, source, source, tagId, tagId],
+  };
+}
+
+export function countEligibleContacts(workspaceId: string, filters?: SegmentFilters): number {
+  const audience = confirmedAudience(workspaceId, filters);
+  if (!audience) return 0;
+  const result = db.prepare(`SELECT COUNT(*) AS count FROM contacts c WHERE ${audience.sql}`).get(...audience.params) as {count:number};
   return result.count;
+}
+
+export function listEligibleContactIds(workspaceId: string, filters?: SegmentFilters): string[] {
+  const audience = confirmedAudience(workspaceId, filters);
+  if (!audience) return [];
+  return (db.prepare(`SELECT c.id FROM contacts c WHERE ${audience.sql} ORDER BY c.created_at`).all(...audience.params) as Array<{id:string}>).map(row => row.id);
 }
 
 export function listSegments(workspaceId: string): Segment[] {

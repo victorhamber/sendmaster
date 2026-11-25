@@ -7,9 +7,17 @@ import { createSegment, createTag, deleteSegment, deleteTag, listContactSources,
 import { createContact, createWorkspace, importContacts, importLegacy, linkContactExternalId, listIntegrationEvents, readState, recordContactResubscription, saveBrief, saveDomains, setActiveWorkspace, updateContactStatus, type Brief, type ContactStatus, type Domains, type SegmentFilters, type Workspace } from './storage.js';
 import { confirmSignupToken, deleteSignupForm, getSignupForm, issueSignupConfirmation, listSignupForms, saveSignupForm, submitSignupForm } from './forms.js';
 import { sendWorkspaceEmail } from './mailer.js';
+import { deleteEmailTemplate, listEmailTemplates, saveEmailTemplate } from './templates.js';
+import { campaignReport, recordClick, recordOpen, TRACKING_PIXEL, workspaceOverview } from './tracking.js';
 import { addCampaignReviewEntry, deleteCampaignDraft, deleteCampaignReviewEntry, listCampaignDrafts, listCampaignReviewEntries, saveCampaignDraft } from './campaigns.js';
+import { enqueueCampaignReview, processCampaignBatch } from './campaign-queue.js';
+import { advanceSequences, enrollSequence, listSequences, saveSequence, type SequenceStep } from './sequences.js';
+import { sendCampaignToContact } from './campaign-delivery.js';
+import { acceptProviderCallback } from './provider-callback.js';
 import { applyProviderMailEvent, unsubscribeWithToken } from './suppressions.js';
 import { getMailSettings, isMailProviderId, mailProviders, saveMailSettings } from './mailer-settings.js';
+import { deleteOutboundEndpoint, enqueuePendingDeliveries, listOutboundEndpoints, processOutboundBatch, saveOutboundEndpoint } from './outbound.js';
+import { allowPublicPost, isSubscriberRequest } from './public-access.js';
 
 const root = resolve('.');
 const port = Number(process.env.PORT ?? 4173);
@@ -20,6 +28,10 @@ const sessionKey = Buffer.from(process.env.SENDMASTER_SECRET_KEY ?? '', 'base64'
 const sessionTtlSeconds = 7 * 24 * 60 * 60;
 const loginFailures = new Map<string, { count: number; blockedUntil: number }>();
 const mime: Record<string, string> = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.svg':'image/svg+xml' };
+const subscriberPageHeaders = {
+  'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer',
+  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors *",
+};
 
 if (publicHost && (!validDomain(publicHost) || !authUsername || authPassword.length < 8 || sessionKey.length !== 32)) {
   throw new Error('Hospedagem pública exige domínio válido, usuário, senha com pelo menos 8 caracteres e SENDMASTER_SECRET_KEY Base64 de 32 bytes.');
@@ -150,6 +162,16 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const isLoopback = host === '127.0.0.1' || host === 'localhost';
   if (publicHost ? host !== publicHost && !(isHealthCheck && isLoopback) : !isLoopback) return sendJson(res, 403, { error: 'Host não permitido.' });
   if (isHealthCheck) return sendJson(res, 200, { status: 'ok' });
+  const callbackUrl = new URL(req.url ?? '/', `http://${req.headers.host}`);
+  const callbackMatch = callbackUrl.pathname.match(/^\/mail\/callbacks\/([^/]+)\/([a-z0-9]+)$/);
+  if (req.method === 'POST' && callbackMatch) {
+    try {
+      const rawBody = await readText(req);
+      const headers = Object.fromEntries(Object.entries(req.headers).flatMap(([key, value]) => typeof value === 'string' ? [[key.toLowerCase(), value]] : []));
+      const result = acceptProviderCallback({ workspaceId: decodeURIComponent(callbackMatch[1]), provider: callbackMatch[2], rawBody, headers });
+      return result.accepted ? sendJson(res, 202, result) : sendJson(res, 401, { error: 'Assinatura inválida.' });
+    } catch { return sendJson(res, 400, { error: 'Callback inválido.' }); }
+  }
   const allowedOrigins = new Set([publicHost && host === publicHost ? `https://${publicHost}` : `http://${req.headers.host}`]);
   if (req.headers.origin && !allowedOrigins.has(req.headers.origin)) return sendJson(res, 403, { error: 'Origem não permitida.' });
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -167,7 +189,11 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       res.end(loginPage());
       return;
     }
-    if (!authenticated) {
+    const subscriber = isSubscriberRequest(req.method ?? 'GET', url.pathname);
+    if (!authenticated && subscriber && req.method === 'POST' && !allowPublicPost(clientAddress(req), Date.now())) {
+      return sendJson(res, 429, { error: 'Muitas tentativas. Espere alguns minutos e tente de novo.' });
+    }
+    if (!authenticated && !subscriber) {
       if (url.pathname.startsWith('/api/')) return sendJson(res, 401, { error: 'Entre para continuar.' });
       res.writeHead(303, { location: '/login', 'cache-control': 'no-store' });
       res.end();
@@ -215,6 +241,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         if (!validEmail(senderEmail) || replyTo && !validEmail(replyTo)) return sendJson(res, 400, { error: 'Informe e-mails válidos para remetente e resposta.' });
         const current = getMailSettings(workspaceId);
         const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim().slice(0, 1000) : '';
+        const webhookSecret = typeof body.webhookSecret === 'string' ? body.webhookSecret.trim().slice(0, 500) : '';
         const apiSecret = typeof body.apiSecret === 'string' ? body.apiSecret.trim().slice(0, 1000) : '';
         const apiRegion = typeof body.apiRegion === 'string' ? body.apiRegion.trim().slice(0, 253) : '';
         const sameProvider = current?.providerId === body.providerId;
@@ -227,7 +254,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         const smtpUsername = typeof body.smtpUsername === 'string' ? body.smtpUsername.trim().slice(0, 254) : '';
         const smtpPassword = typeof body.smtpPassword === 'string' ? body.smtpPassword.slice(0, 1000) : '';
         if (body.providerId === 'smtp' && (!smtpHost || smtpPort < 1 || smtpPort > 65535 || !Number.isInteger(smtpPort))) return sendJson(res, 400, { error: 'Informe servidor e porta SMTP válidos.' });
-        const saved = saveMailSettings(workspaceId, { providerId: body.providerId, senderEmail, senderName, replyTo, apiKey, apiSecret,
+        const saved = saveMailSettings(workspaceId, { providerId: body.providerId, senderEmail, senderName, replyTo, apiKey, apiSecret, webhookSecret,
           apiRegion, smtpHost, smtpPort, smtpEncryption, smtpUsername, smtpPassword });
         return saved ? sendJson(res, 200, { settings: getMailSettings(workspaceId) }) : sendJson(res, 404, { error: 'Workspace não encontrado.' });
       }
@@ -249,7 +276,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
           const form = getSignupForm(decodeURIComponent(submissionMatch[1]));
           const issued = issueSignupConfirmation(decodeURIComponent(submissionMatch[1]), result.contact.id);
           if (!form || !issued) return sendJson(res, 500, { error: 'Não foi possível preparar a confirmação.' });
-          const confirmationUrl = `http://${req.headers.host}/forms/confirm?token=${encodeURIComponent(issued.token)}`;
+          const publicBase = publicHost && host === publicHost ? `https://${publicHost}` : `http://${req.headers.host}`;
+          const confirmationUrl = `${publicBase}/forms/confirm?token=${encodeURIComponent(issued.token)}`;
           const greeting = result.contact.name ? `Olá, ${result.contact.name}!` : 'Olá!';
           const subject = `Confirme sua inscrição: ${form.title}`;
           const text = `${greeting}\n\nRecebemos seu pedido de inscrição. Para confirmar que este endereço é seu e autorizar o recebimento dos e-mails, abra o link abaixo:\n\n${confirmationUrl}\n\nO link expira em 24 horas. Se você não solicitou esta inscrição, ignore esta mensagem.`;
@@ -262,7 +290,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
           }
           return sendJson(res, 201, { status: 'pending', message: 'Cadastro recebido. Enviamos um e-mail com o link para confirmar sua inscrição.' });
         }
-        return sendJson(res, 201, { status: result.contact.status, message: 'Cadastro confirmado com opt-in simples. O envio de campanhas ainda não está conectado.' });
+        return sendJson(res, 201, { status: result.contact.status, message: 'Cadastro confirmado com opt-in simples.' });
       }
       const campaignsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/campaigns$/);
       const campaignMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/campaigns\/([^/]+)$/);
@@ -284,6 +312,43 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       }
       if (campaignMatch && req.method === 'DELETE') return deleteCampaignDraft(decodeURIComponent(campaignMatch[1]), decodeURIComponent(campaignMatch[2]))
         ? sendJson(res, 200, { deleted: true }) : sendJson(res, 404, { error: 'Rascunho não encontrado neste workspace.' });
+      const templatesMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/templates$/);
+      const templateMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/templates\/([^/]+)$/);
+      if (templatesMatch && req.method === 'GET') return sendJson(res, 200, { templates: listEmailTemplates(decodeURIComponent(templatesMatch[1])) });
+      const reportsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports$/);
+      if (reportsMatch && req.method === 'GET') return sendJson(res, 200, { campaigns: campaignReport(decodeURIComponent(reportsMatch[1])) });
+      const overviewMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/overview$/);
+      if (overviewMatch && req.method === 'GET') return sendJson(res, 200, workspaceOverview(decodeURIComponent(overviewMatch[1])));
+      const sequencesMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/sequences$/);
+      const sequenceEnrollMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/sequences\/([^/]+)\/enroll$/);
+      if (sequencesMatch && req.method === 'GET') return sendJson(res, 200, { sequences: listSequences(decodeURIComponent(sequencesMatch[1])) });
+      if (sequencesMatch && req.method === 'POST') {
+        const workspaceId = decodeURIComponent(sequencesMatch[1]);
+        const body = await readJson(req);
+        const saved = saveSequence(workspaceId, String(body.name ?? ''), Array.isArray(body.steps) ? body.steps as SequenceStep[] : []);
+        return saved ? sendJson(res, 201, { id: saved, sequences: listSequences(workspaceId) }) : sendJson(res, 400, { error: 'A sequência precisa começar com um e-mail e usar campanhas deste workspace.' });
+      }
+      if (sequenceEnrollMatch && req.method === 'POST') {
+        const body = await readJson(req);
+        const enrolled = enrollSequence(decodeURIComponent(sequenceEnrollMatch[1]), decodeURIComponent(sequenceEnrollMatch[2]), String(body.contactId ?? ''));
+        return enrolled ? sendJson(res, 200, { enrolled: true }) : sendJson(res, 400, { error: 'Só um contato confirmado entra na sequência.' });
+      }
+      if ((templatesMatch && req.method === 'POST') || (templateMatch && req.method === 'PUT')) {
+        const workspaceId = decodeURIComponent((templatesMatch ?? templateMatch)![1]);
+        const templateId = templateMatch ? decodeURIComponent(templateMatch[2]) : undefined;
+        const body = await readJson(req);
+        const fields = ['name', 'subject', 'preheader', 'html', 'text'] as const;
+        const limits = { name: 100, subject: 180, preheader: 180, html: 200_000, text: 200_000 };
+        const values = {} as Record<typeof fields[number], string>;
+        for (const field of fields) {
+          if (typeof body[field] !== 'string' || body[field].length > limits[field]) return sendJson(res, 400, { error: 'Revise os campos ou os limites do modelo.' });
+          values[field] = body[field].trim();
+        }
+        const template = saveEmailTemplate(workspaceId, values, templateId);
+        return template ? sendJson(res, templateId ? 200 : 201, { template }) : sendJson(res, 400, { error: 'Informe o nome do modelo e o assunto.' });
+      }
+      if (templateMatch && req.method === 'DELETE') return deleteEmailTemplate(decodeURIComponent(templateMatch[1]), decodeURIComponent(templateMatch[2]))
+        ? sendJson(res, 200, { deleted: true }) : sendJson(res, 404, { error: 'Modelo não encontrado neste workspace.' });
       const campaignReviewMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/campaign-review$/);
       const campaignReviewItemMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/campaign-review\/([^/]+)$/);
       if (campaignReviewMatch && req.method === 'GET') {
@@ -295,6 +360,18 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         if (typeof body.campaignId !== 'string' || body.segmentId !== null && typeof body.segmentId !== 'string') return sendJson(res, 400, { error: 'Campanha ou segmento inválido.' });
         const entry = addCampaignReviewEntry(workspaceId, body.campaignId, typeof body.segmentId === 'string' ? body.segmentId : null);
         return entry ? sendJson(res, 201, { entry }) : sendJson(res, 404, { error: 'Rascunho não encontrado neste workspace.' });
+      }
+      const campaignQueueMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/campaign-review\/([^/]+)\/queue$/);
+      if (campaignQueueMatch && req.method === 'POST') {
+        const body = await readJson(req);
+        let sendAt: Date | null = null;
+        if (body.sendAt !== undefined && body.sendAt !== null && body.sendAt !== '') {
+          if (typeof body.sendAt !== 'string' || Number.isNaN(Date.parse(body.sendAt))) return sendJson(res, 400, { error: 'Informe uma data de envio válida.' });
+          sendAt = new Date(body.sendAt);
+          if (sendAt.getTime() > Date.now() + 366 * 24 * 60 * 60 * 1000) return sendJson(res, 400, { error: 'O agendamento não pode passar de um ano.' });
+        }
+        const result = enqueueCampaignReview(decodeURIComponent(campaignQueueMatch[1]), decodeURIComponent(campaignQueueMatch[2]), sendAt);
+        return result ? sendJson(res, 202, result) : sendJson(res, 404, { error: 'Item de revisão não encontrado neste workspace.' });
       }
       if (campaignReviewItemMatch && req.method === 'DELETE') return deleteCampaignReviewEntry(decodeURIComponent(campaignReviewItemMatch[1]), decodeURIComponent(campaignReviewItemMatch[2]))
         ? sendJson(res, 200, { deleted: true }) : sendJson(res, 404, { error: 'Item de revisão não encontrado neste workspace.' });
@@ -434,6 +511,24 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         const workspaceId = decodeURIComponent(eventsMatch[1]); const afterId = Math.max(0, Number(url.searchParams.get('after') ?? 0) || 0);
         return sendJson(res, 200, { events: listIntegrationEvents(workspaceId, afterId) });
       }
+      const outboundMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/outbound-endpoints$/);
+      if (outboundMatch && req.method === 'GET') return sendJson(res, 200, { endpoints: listOutboundEndpoints(decodeURIComponent(outboundMatch[1])) });
+      if (outboundMatch && req.method === 'POST') {
+        const body = await readJson(req);
+        const destination = typeof body.url === 'string' ? body.url.trim() : '';
+        const secret = typeof body.secret === 'string' ? body.secret.trim().slice(0, 200) : '';
+        const saved = saveOutboundEndpoint(decodeURIComponent(outboundMatch[1]), destination, secret);
+        return saved
+          ? sendJson(res, 201, { endpoints: listOutboundEndpoints(decodeURIComponent(outboundMatch[1])) })
+          : sendJson(res, 400, { error: 'Informe uma URL HTTPS pública e um segredo com pelo menos 8 caracteres.' });
+      }
+      const outboundDelete = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/outbound-endpoints\/([^/]+)$/);
+      if (outboundDelete && req.method === 'DELETE') {
+        const workspaceId = decodeURIComponent(outboundDelete[1]);
+        return deleteOutboundEndpoint(workspaceId, decodeURIComponent(outboundDelete[2]))
+          ? sendJson(res, 200, { endpoints: listOutboundEndpoints(workspaceId) })
+          : sendJson(res, 404, { error: 'Destino não encontrado.' });
+      }
       return sendJson(res, 404, { error: 'Rota não encontrada.' });
     } catch (error) {
       if (error instanceof Error && error.message.includes('UNIQUE constraint failed: contacts')) return sendJson(res, 409, { error: 'Este e-mail já existe neste workspace.' });
@@ -441,10 +536,23 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       return sendJson(res, 400, { error: error instanceof Error ? error.message : 'Requisição inválida.' });
     }
   }
+  if (url.pathname === '/mail/open' && req.method === 'GET') {
+    recordOpen(url.searchParams.get('token') ?? '');
+    res.writeHead(200, { 'content-type': 'image/gif', 'cache-control': 'no-store', 'content-length': String(TRACKING_PIXEL.length) });
+    res.end(TRACKING_PIXEL);
+    return;
+  }
+  if (url.pathname === '/mail/click' && req.method === 'GET') {
+    const destination = recordClick(url.searchParams.get('token') ?? '');
+    if (!destination) return sendJson(res, 404, { error: 'Link inválido.' });
+    res.writeHead(302, { location: destination, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' });
+    res.end();
+    return;
+  }
   if (url.pathname === '/unsubscribe' && req.method === 'GET') {
     const token = url.searchParams.get('token') ?? '';
     const safeToken = /^[A-Za-z0-9_-]{40,50}$/.test(token) ? token : '';
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+    res.writeHead(200, subscriberPageHeaders);
     res.end(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preferências de e-mail</title><style>body{margin:0;padding:24px;background:#f5f8f6;color:#20352c;font:16px system-ui,sans-serif}.card{max-width:520px;margin:48px auto;padding:28px;background:#fff;border:1px solid #dce7e0;border-radius:14px}button{border:0;border-radius:7px;padding:12px 18px;background:#176b50;color:#fff;font:600 15px system-ui;cursor:pointer}.status{min-height:24px;margin-top:16px;color:#52645a}</style></head><body><main class="card"><h1>Cancelar inscrição</h1><p>Você pode parar de receber e-mails deste produto. A solicitação só será aplicada após confirmar abaixo.</p><button id="unsubscribe">Cancelar inscrição</button><p id="status" class="status" role="status" aria-live="polite"></p></main><script>const button=document.querySelector('#unsubscribe'),status=document.querySelector('#status');button.addEventListener('click',async()=>{button.disabled=true;status.textContent='Processando…';try{const response=await fetch('/unsubscribe?token=${safeToken}',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:'${safeToken}'})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Link inválido.');button.hidden=true;status.textContent=result.message}catch(error){status.textContent=error.message;button.disabled=false}});</script></body></html>`);
     return;
   }
@@ -467,7 +575,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (url.pathname === '/forms/confirm' && req.method === 'GET') {
     const token = url.searchParams.get('token') ?? '';
     const safeToken = /^[A-Za-z0-9_-]{40,50}$/.test(token) ? token : '';
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+    res.writeHead(200, subscriberPageHeaders);
     res.end(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Confirmar inscrição</title><style>body{margin:0;padding:24px;background:#f5f8f6;color:#20352c;font:16px system-ui,sans-serif}.card{max-width:520px;margin:48px auto;padding:28px;background:#fff;border:1px solid #dce7e0;border-radius:14px}button{border:0;border-radius:7px;padding:12px 18px;background:#176b50;color:#fff;font:600 15px system-ui;cursor:pointer}.status{min-height:24px;margin-top:16px;color:#52645a}</style></head><body><main class="card"><h1>Confirme sua inscrição</h1><p>Confirme que você pediu para receber e-mails. A inscrição só será ativada depois desta etapa.</p><button id="confirm">Confirmar inscrição</button><p id="status" class="status" role="status" aria-live="polite"></p></main><script>const button=document.querySelector('#confirm'),status=document.querySelector('#status');button.addEventListener('click',async()=>{button.disabled=true;status.textContent='Confirmando…';try{const response=await fetch('/forms/confirm',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:'${safeToken}'})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Link inválido ou expirado.');button.hidden=true;status.textContent=result.message}catch(error){status.textContent=error.message;button.disabled=false}});</script></body></html>`);
     return;
   }
@@ -482,7 +590,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   }
   const publicFormMatch = url.pathname.match(/^\/forms\/([a-f0-9-]{36})$/i);
   if (publicFormMatch && req.method === 'GET') {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+    res.writeHead(200, subscriberPageHeaders);
     res.end(publicFormPage(publicFormMatch[1]));
     return;
   }
@@ -503,3 +611,36 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 
 createServer((req, res) => { void route(req, res).catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'Erro interno.' }); else if (!res.destroyed && !res.writableEnded) res.end(); }); })
   .listen(port, publicHost ? '0.0.0.0' : '127.0.0.1', () => console.log(publicHost ? `SendMaster pronto na porta ${port} para ${publicHost}` : `SendMaster local em http://127.0.0.1:${port}`));
+
+const runCampaignQueue = (): void => {
+  void processCampaignBatch({
+    now: new Date(),
+    limit: 10,
+    deliver: message => sendCampaignToContact(message.workspaceId, message.campaignId, message.contactId, message.id).then(result => ({ providerMessageId: result.messageId })),
+  }).catch(error => console.error('Fila de campanha:', error instanceof Error ? error.message : 'erro desconhecido'));
+};
+const runSequences = (): void => {
+  try { advanceSequences(new Date()); }
+  catch (error) { console.error('Sequência:', error instanceof Error ? error.message : 'erro desconhecido'); }
+};
+const runOutbound = (): void => {
+  void (async () => {
+    enqueuePendingDeliveries(20);
+    await processOutboundBatch({
+      now: new Date(), limit: 10,
+      deliver: async delivery => {
+        const response = await fetch(delivery.url, {
+          method: 'POST', headers: { 'content-type': 'application/json', 'x-sendmaster-signature': delivery.signature },
+          body: delivery.body, signal: AbortSignal.timeout(10_000), redirect: 'error',
+        });
+        if (!response.ok) throw new Error(`Destino respondeu HTTP ${response.status}`);
+      },
+    });
+  })().catch(error => console.error('Entrega de eventos:', error instanceof Error ? error.message : 'erro desconhecido'));
+};
+runCampaignQueue();
+runSequences();
+runOutbound();
+setInterval(runCampaignQueue, 15_000).unref();
+setInterval(runSequences, 15_000).unref();
+setInterval(runOutbound, 15_000).unref();

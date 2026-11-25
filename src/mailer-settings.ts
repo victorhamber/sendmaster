@@ -22,11 +22,11 @@ export const mailProviders = [
 export type MailProviderId = typeof mailProviders[number]['id'];
 export type MailSettingsInput = {
   providerId: MailProviderId; senderEmail: string; senderName: string; replyTo: string;
-  apiKey?: string; apiSecret?: string; apiRegion?: string; smtpHost?: string; smtpPort?: number;
+  apiKey?: string; apiSecret?: string; webhookSecret?: string; apiRegion?: string; smtpHost?: string; smtpPort?: number;
   smtpEncryption?: 'none' | 'ssl' | 'tls'; smtpUsername?: string; smtpPassword?: string;
 };
-type StoredSettings = Omit<MailSettingsInput, 'apiKey' | 'apiSecret' | 'smtpPassword'> & { apiKey?: string; apiSecret?: string; smtpPassword?: string };
-const secretFields = ['apiKey', 'apiSecret', 'smtpPassword'] as const;
+type StoredSettings = Omit<MailSettingsInput, 'apiKey' | 'apiSecret' | 'smtpPassword' | 'webhookSecret'> & { apiKey?: string; apiSecret?: string; smtpPassword?: string; webhookSecret?: string };
+const secretFields = ['apiKey', 'apiSecret', 'smtpPassword', 'webhookSecret'] as const;
 
 function readStoredSettings(workspaceId: string, settingsJson: string): StoredSettings {
   const settings = JSON.parse(settingsJson) as StoredSettings;
@@ -47,15 +47,15 @@ export function isMailProviderId(value: unknown): value is MailProviderId {
 export function getMailSettings(workspaceId: string) {
   const row = db.prepare('SELECT provider_id AS providerId, settings_json AS settingsJson, updated_at AS updatedAt FROM workspace_mail_settings WHERE workspace_id = ?').get(workspaceId) as {providerId:MailProviderId;settingsJson:string;updatedAt:string}|undefined;
   if (!row) return null;
-  const { apiKey, apiSecret, smtpPassword, ...settings } = readStoredSettings(workspaceId, row.settingsJson);
-  return { ...settings, providerId: row.providerId, apiKeyConfigured: Boolean(apiKey), apiSecretConfigured: Boolean(apiSecret), smtpPasswordConfigured: Boolean(smtpPassword), updatedAt: row.updatedAt };
+  const { apiKey, apiSecret, smtpPassword, webhookSecret, ...settings } = readStoredSettings(workspaceId, row.settingsJson);
+  return { ...settings, providerId: row.providerId, apiKeyConfigured: Boolean(apiKey), apiSecretConfigured: Boolean(apiSecret), smtpPasswordConfigured: Boolean(smtpPassword), webhookSecretConfigured: Boolean(webhookSecret), updatedAt: row.updatedAt };
 }
 
 export function readMailCredentials(workspaceId: string) {
   const row = db.prepare('SELECT provider_id AS providerId, settings_json AS settingsJson FROM workspace_mail_settings WHERE workspace_id = ?').get(workspaceId) as {providerId:MailProviderId;settingsJson:string}|undefined;
   if (!row) return null;
   const settings = readStoredSettings(workspaceId, row.settingsJson);
-  return { ...settings, apiKey: settings.apiKey ? revealSecret(settings.apiKey) : '', apiSecret: settings.apiSecret ? revealSecret(settings.apiSecret) : '', smtpPassword: settings.smtpPassword ? revealSecret(settings.smtpPassword) : '' };
+  return { ...settings, apiKey: settings.apiKey ? revealSecret(settings.apiKey) : '', apiSecret: settings.apiSecret ? revealSecret(settings.apiSecret) : '', smtpPassword: settings.smtpPassword ? revealSecret(settings.smtpPassword) : '', webhookSecret: settings.webhookSecret ? revealSecret(settings.webhookSecret) : '' };
 }
 
 export function saveMailSettings(workspaceId: string, input: MailSettingsInput): boolean {
@@ -66,6 +66,7 @@ export function saveMailSettings(workspaceId: string, input: MailSettingsInput):
   const settings: StoredSettings = {
     providerId: input.providerId, senderEmail: input.senderEmail, senderName: input.senderName, replyTo: input.replyTo,
     apiKey: secret(input.apiKey, previous.apiKey), apiSecret: secret(input.apiSecret, previous.apiSecret),
+    webhookSecret: secret(input.webhookSecret, previous.webhookSecret),
     apiRegion: input.apiRegion, smtpHost: input.smtpHost, smtpPort: input.smtpPort,
     smtpEncryption: input.smtpEncryption, smtpUsername: input.smtpUsername,
     smtpPassword: secret(input.smtpPassword, previous.smtpPassword),

@@ -24,7 +24,7 @@ export type AppState = {
   legacyImported: boolean;
 };
 
-const databasePath = resolve('data/sendmaster.sqlite');
+const databasePath = resolve(process.env.SENDMASTER_DB_PATH || 'data/sendmaster.sqlite');
 mkdirSync(dirname(databasePath), { recursive: true });
 export const db = new DatabaseSync(databasePath);
 db.exec(`
@@ -90,6 +90,12 @@ db.exec(`
     text_body TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS campaign_drafts_workspace_idx ON campaign_drafts(workspace_id, updated_at);
+  CREATE TABLE IF NOT EXISTS email_templates (
+    id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, subject TEXT NOT NULL, preheader TEXT NOT NULL DEFAULT '', html_body TEXT NOT NULL DEFAULT '',
+    text_body TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS email_templates_workspace_idx ON email_templates(workspace_id, updated_at);
   CREATE TABLE IF NOT EXISTS campaign_reviews (
     id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     campaign_id TEXT NOT NULL REFERENCES campaign_drafts(id) ON DELETE CASCADE,
@@ -134,6 +140,53 @@ db.exec(`
     aggregate_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS integration_events_workspace_idx ON integration_events(workspace_id, id);
+  CREATE TABLE IF NOT EXISTS outbound_endpoints (
+    id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    url TEXT NOT NULL, secret TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS outbound_endpoints_workspace_idx ON outbound_endpoints(workspace_id, created_at);
+  CREATE TABLE IF NOT EXISTS outbound_deliveries (
+    id TEXT PRIMARY KEY, endpoint_id TEXT NOT NULL REFERENCES outbound_endpoints(id) ON DELETE CASCADE,
+    event_row_id INTEGER NOT NULL REFERENCES integration_events(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK(status IN ('queued','sending','delivered','failed')),
+    attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT NOT NULL, last_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(endpoint_id, event_row_id)
+  );
+  CREATE INDEX IF NOT EXISTS outbound_deliveries_due_idx ON outbound_deliveries(status, next_attempt_at);
+  CREATE TABLE IF NOT EXISTS campaign_messages (
+    id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    campaign_id TEXT NOT NULL REFERENCES campaign_drafts(id) ON DELETE CASCADE,
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK(status IN ('queued','sending','sent','failed','suppressed','bounced')),
+    attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT NOT NULL, last_error TEXT NOT NULL DEFAULT '',
+    sent_at TEXT, provider_message_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(campaign_id, contact_id)
+  );
+  CREATE INDEX IF NOT EXISTS campaign_messages_due_idx ON campaign_messages(status, next_attempt_at);
+  CREATE INDEX IF NOT EXISTS campaign_messages_provider_message_idx ON campaign_messages(workspace_id, provider_message_id);
+  CREATE TABLE IF NOT EXISTS message_clicks (
+    id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES campaign_messages(id) ON DELETE CASCADE,
+    url TEXT NOT NULL, clicks INTEGER NOT NULL DEFAULT 0, first_clicked_at TEXT NOT NULL,
+    UNIQUE(message_id, url)
+  );
+  CREATE TABLE IF NOT EXISTS message_track_tokens (
+    id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES campaign_messages(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK(kind IN ('open','click')), token_hash TEXT NOT NULL UNIQUE,
+    url TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS sequences (
+    id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, steps_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS sequences_workspace_idx ON sequences(workspace_id, updated_at);
+  CREATE TABLE IF NOT EXISTS sequence_enrollments (
+    id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    sequence_id TEXT NOT NULL REFERENCES sequences(id) ON DELETE CASCADE,
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    step_index INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL CHECK(status IN ('active','done','stopped')),
+    next_at TEXT NOT NULL, last_message_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    UNIQUE(sequence_id, contact_id)
+  );
+  CREATE INDEX IF NOT EXISTS sequence_enrollments_due_idx ON sequence_enrollments(status, next_at);
 `);
 const signupFormColumns = db.prepare('PRAGMA table_info(signup_forms)').all() as Array<{name:string}>;
 if (!signupFormColumns.some(column => column.name === 'double_opt_in')) {
@@ -141,6 +194,10 @@ if (!signupFormColumns.some(column => column.name === 'double_opt_in')) {
 }
 const contactColumns = db.prepare('PRAGMA table_info(contacts)').all() as Array<{name:string}>;
 if (!contactColumns.some(column => column.name === 'phone')) db.exec("ALTER TABLE contacts ADD COLUMN phone TEXT NOT NULL DEFAULT ''");
+const messageColumns = db.prepare('PRAGMA table_info(campaign_messages)').all() as Array<{name:string}>;
+if (!messageColumns.some(column => column.name === 'provider_message_id')) db.exec('ALTER TABLE campaign_messages ADD COLUMN provider_message_id TEXT');
+if (!messageColumns.some(column => column.name === 'opened_at')) db.exec('ALTER TABLE campaign_messages ADD COLUMN opened_at TEXT');
+if (!messageColumns.some(column => column.name === 'open_count')) db.exec('ALTER TABLE campaign_messages ADD COLUMN open_count INTEGER NOT NULL DEFAULT 0');
 for (const [column, definition] of [
   ['collect_phone', "INTEGER NOT NULL DEFAULT 0"], ['phone_required', "INTEGER NOT NULL DEFAULT 0"],
   ['page_color', "TEXT NOT NULL DEFAULT '#f5f8f6'"], ['card_color', "TEXT NOT NULL DEFAULT '#ffffff'"],

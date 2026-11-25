@@ -1,17 +1,24 @@
 # Mapa visual — SendMaster-App
-Atualizado: 2026-11-13
+Atualizado: 2026-11-24
 
 ```mermaid
 flowchart LR
-  UI[UI: index.html + app.js] --> API[Node TypeScript: src/server.ts]
-  API --> Store[SQLite: src/storage.ts]
-  Audience[Tags + segmentos: src/audience.ts] --> Store
-  Forms[Formulários: src/forms.ts] --> Store
-  Mail[Provedores: src/mailer-settings.ts] --> Store
+  UI[index.html + app.js + campaigns-ui.js + providers-ui.js] --> API[src/server.ts]
+  API --> Forms[src/forms.ts]
+  API --> Campaigns[src/campaigns.ts]
+  API --> Queue[src/campaign-queue.ts]
+  Queue --> Delivery[src/campaign-delivery.ts]
+  Delivery --> Mailer[src/mailer.ts + src/smtp-transport.ts]
+  API --> Audience[src/audience.ts]
+  API --> MailSettings[src/mailer-settings.ts]
+  Forms --> Store[src/storage.ts]
+  Campaigns --> Store
+  Audience --> Store
+  MailSettings --> Store
+  Forms --> Mailer
   Store --> DB[(data/sendmaster.sqlite)]
-  API --> UI
-  Store --> Events[Outbox de eventos + IDs externos]
-  Events -. futura integração por API .-> Apps[WhatsApp / tracking / MCP]
+  Store --> Events[integration_events]
+  Events --> Outbox[src/outbound.ts]
 ```
 
-Módulo: [local-app.md](modules/local-app.md). O catálogo original e as configurações por workspace já existem, mas os adaptadores de envio/teste ainda não. Formulários capturam consentimento sem enviar confirmação. O servidor é local e loopback; esta arquitetura não representa uma implantação VPS.
+Módulo: [local-app.md](modules/local-app.md). Alvo de produto: [email-marketing.md](modules/email-marketing.md). O POST de revisão grava `campaign_messages`. O processo Node chama a fila, a sequência e a outbox a cada 15 segundos. Relatório em `src/tracking.ts`. Sequência em `src/sequences.ts`.

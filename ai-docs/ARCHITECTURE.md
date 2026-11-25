@@ -1,5 +1,5 @@
 # Arquitetura — SendMaster-App
-Atualizado: 2026-11-19
+Atualizado: 2026-11-24
 
 ## Visão geral
 Aplicativo de uso pessoal. O navegador carrega a interface existente; um servidor Node/TypeScript serve os assets e a API; SQLite persiste o estado localmente ou em volume de container. O plugin WordPress original permanece como referência e não é importado nem alterado.
@@ -11,6 +11,7 @@ Aplicativo de uso pessoal. O navegador carrega a interface existente; um servido
 | `src/storage.ts` | Schema SQLite, migração inicial e operações de dados | `modules/local-app.md` |
 | `src/audience.ts` | Tags, atribuições, consultas filtradas e segmentos salvos | `modules/local-app.md` |
 | `src/campaigns.ts` | Rascunhos por workspace e contagem de contatos confirmados | `modules/local-app.md` |
+| `src/campaign-queue.ts` | Fila por destinatário e worker em lote | `modules/email-marketing.md` |
 | `src/suppressions.ts` | Tokens de descadastro e aplicação idempotente de eventos de e-mail | `modules/local-app.md` |
 | `src/forms.ts` | Formulários por workspace e captura pendente de consentimento | `modules/local-app.md` |
 | `src/mailer-settings.ts` | Catálogo e configurações de provedor por workspace | `modules/local-app.md` |
@@ -25,14 +26,17 @@ Mudanças de contato gravam evento na outbox SQLite na mesma transação. Consum
 ## Dados e integrações
 - Workspaces, briefs, domínios, contatos, tags, segmentos, formulários, configuração de e-mail, IDs externos e eventos de integração ficam no SQLite local ou volume de container. Uma importação única migra os dados já existentes do localStorage.
 - No modo local, o servidor escuta somente `127.0.0.1`; no modo Easypanel, escuta em `0.0.0.0` apenas quando host, credenciais e chave de sessão estão configurados, mantendo validação de Host/Origin. Login gera sessão HMAC em cookie de sete dias. A interface e API usam a mesma origem.
-- Adaptadores de envio são chamados pelo double opt-in. Rascunhos não disparam campanhas. Tokens de descadastro ficam armazenados como hash; evento normalizado de provedor é idempotente, mas ainda não há validação pública de assinatura por provedor. MCP e sincronização externa seguem fora desta etapa.
-- O caminho interno `sendCampaignToContact` gera um token individual de descadastro e injeta o link no HTML/texto e os headers RFC 8058 no formato de cada API/SMTP. Ele requer `SENDMASTER_PUBLIC_URL` HTTPS, mas não há endpoint de campanha/fila; o app público está atrás de sessão de login e não está pronto para envio a destinatários externos.
+- Adaptadores de envio são chamados pelo double opt-in e pelo worker da fila. O POST de revisão não dispara. Bounce e reclamação públicos entram por `POST /mail/callbacks/:workspaceId/:provider`, com assinatura e vínculo ao id da mensagem. `src/outbound.ts` entrega `integration_events` para a URL HTTPS do workspace.
+- `sendCampaignToContact` gera um token individual de descadastro e injeta o link no HTML/texto e os headers RFC 8058. Exige `SENDMASTER_PUBLIC_URL` HTTPS. Formulário, confirmação e descadastro não pedem a sessão do administrador.
 - A revisão salva o segmento selecionado e a contagem de destinatários confirmados no momento da entrada. A UI também mostra a elegibilidade atualizada; ela não é uma fila de envio nem agenda mensagens.
 
 ## Invariantes
 - Briefs, domínios, tags e segmentos pertencem a um workspace.
 - Formulários só aplicam tags do próprio workspace. Checkbox de consentimento é exigida nos dois modos; double opt-in é opcional e ligado por padrão para preservar dados antigos. Opt-in simples confirma no cadastro; double opt-in envia confirmação e deixa pendente até a ação explícita da pessoa.
-- Cada workspace guarda um único provedor selecionado. Campanhas ficam em rascunho; nenhum envio real é iniciado nesta etapa.
+- Cada workspace guarda um único provedor selecionado. O POST de revisão só enfileira. O worker do processo envia o lote depois. Data futura espera na mesma fila. `{{nome}}` e `{{email}}` são trocados no envio. O corpo enviado ganha pixel e links rastreados. A sequência linear só enfileira o próximo e-mail.
 - E-mails de contato são únicos por workspace; estados pendente/descadastrado/bounce/reclamação ficam inelegíveis para envio.
 - O banco e o diretório `data/` nunca são servidos como assets estáticos.
 - O plugin WordPress original permanece fora do escopo de edição.
+
+## Alvo
+O produto completo está contratado em `modules/email-marketing.md`. Fila, relatório e sequência linear já estão no código. O worker é o processo Node, não um cron do sistema.

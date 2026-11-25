@@ -24,9 +24,10 @@ O `Dockerfile` usa Node.js 24 e expõe a porta `4173`. Configure no serviço:
 - Persistência montada em `/app/data`.
 - `PORT=4173` e `SENDMASTER_PUBLIC_HOST=email.trajettu.com`.
 - `SENDMASTER_AUTH_USERNAME` e `SENDMASTER_AUTH_PASSWORD` (senha com pelo menos 8 caracteres).
-- `SENDMASTER_SECRET_KEY` com uma chave Base64 de 32 bytes, para proteger credenciais de provedores.
+- `SENDMASTER_PUBLIC_URL=https://email.trajettu.com`, sem barra no final. Descadastro, confirmação e rastreio usam esse endereço.
+- O processo Node envia a fila, avança a sequência e entrega eventos a cada 15 segundos, e também na subida. Não configure cron.
 
-Sem domínio, senha e chave configurados, o app não inicia em modo público. O acesso usa formulário de login e cookie seguro com sessão de sete dias; `/healthz` responde para o health check. O servidor deve receber tráfego externo somente pelo proxy HTTPS do Easypanel.
+Sem domínio, senha e chave configurados, o app não inicia em modo público. O acesso usa formulário de login e cookie seguro com sessão de sete dias; `/healthz` responde para o health check. O servidor deve receber tráfego externo somente pelo proxy HTTPS do Easypanel. Credenciais salvas no Windows não servem no container: grave o provedor de novo depois do deploy.
 
 ## Estado e segurança
 

@@ -1,4 +1,4 @@
-// Local campaign drafting UI. Delivery controls will be added only with suppression and unsubscribe handling.
+// Campanhas: rascunho e revisão na interface. O envio fica na fila do servidor.
 const originalView = window.view;
 let campaignDrafts = [];
 let campaignReviewSegments = [];
@@ -6,16 +6,16 @@ let campaignReviewEntries = [];
 let editingCampaignId = '';
 
 function campaignsMarkup() {
-  return `<div class="campaign-note"><strong>Modo rascunho</strong><span>Esta etapa salva conteúdo e mostra o tamanho atual do público confirmado. Nenhum e-mail será enviado daqui.</span></div>
-    <div class="campaign-layout"><section class="panel campaign-editor"><div class="panel-header"><div><div class="panel-title">${editingCampaignId ? 'Editar rascunho' : 'Novo rascunho'}</div><div class="panel-subtitle">Público elegível: contatos confirmados deste workspace. Pendente, descadastrado, bounce e reclamação ficam fora.</div></div></div>
-      <form id="campaign-editor-form"><div class="campaign-fields"><label>Nome interno<input name="name" required maxlength="100" placeholder="Ex.: Conteúdo da semana"></label><label>Assunto<input name="subject" required maxlength="180" placeholder="O assunto que aparecerá na caixa de entrada"></label><label class="full">Pré-cabeçalho<input name="preheader" maxlength="180" placeholder="Complementa o assunto na caixa de entrada"></label><label>Conteúdo HTML<textarea name="html" rows="12" maxlength="200000" placeholder="Cole ou escreva o HTML do e-mail"></textarea></label><label>Versão em texto<textarea name="text" rows="12" maxlength="200000" placeholder="Versão em texto simples para clientes que não exibem HTML"></textarea></label></div><div class="campaign-editor-actions"><span id="campaign-feedback" role="status">Rascunho privado deste workspace.</span><div><button type="button" class="button secondary" id="campaign-reset">Novo rascunho</button><button type="button" class="button secondary" id="campaign-review-add" disabled>Adicionar à revisão</button><button type="submit" class="button primary">Salvar rascunho</button></div></div></form></section>
+  return `<div class="campaign-note"><strong>Fila de envio</strong><span>Salvar e revisar não envia. Enfileirar grava um registro por contato; o worker dispara depois, fora deste clique.</span></div>
+    <div class="campaign-layout"><section class="panel campaign-editor"><div class="panel-header"><div><div class="panel-title">${editingCampaignId ? 'Editar rascunho' : 'Novo rascunho'}</div><div class="panel-subtitle">Use {{nome}} e {{email}}. Eles viram o dado do contato na hora do envio. Um modelo copia o texto para este rascunho; mudar o modelo depois não altera a campanha já salva.</div></div></div>
+      <form id="campaign-editor-form"><div class="campaign-template-row"><label>Modelo<select id="campaign-template"><option value="">Escolha um modelo</option></select></label><button type="button" class="button secondary" id="campaign-template-apply">Usar modelo</button><button type="button" class="button secondary" id="campaign-template-save">Salvar como modelo</button></div><div class="campaign-fields"><label>Nome interno<input name="name" required maxlength="100" placeholder="Ex.: Conteúdo da semana"></label><label>Assunto<input name="subject" required maxlength="180" placeholder="O assunto que aparecerá na caixa de entrada"></label><label class="full">Pré-cabeçalho<input name="preheader" maxlength="180" placeholder="Complementa o assunto na caixa de entrada"></label><label>Conteúdo HTML<textarea name="html" rows="12" maxlength="200000" placeholder="Cole ou escreva o HTML do e-mail"></textarea></label><label>Versão em texto<textarea name="text" rows="12" maxlength="200000" placeholder="Versão em texto simples para clientes que não exibem HTML"></textarea></label></div><div class="campaign-editor-actions"><span id="campaign-feedback" role="status">Rascunho privado deste workspace.</span><div><button type="button" class="button secondary" id="campaign-reset">Novo rascunho</button><button type="button" class="button secondary" id="campaign-review-add" disabled>Adicionar à revisão</button><button type="submit" class="button primary">Salvar rascunho</button></div></div></form></section>
       <section class="panel campaign-preview-panel"><div class="panel-header"><div><div class="panel-title">Prévia do e-mail</div><div class="panel-subtitle">Scripts e recursos externos ficam bloqueados nesta prévia.</div></div></div><div class="email-preview-head"><strong id="campaign-preview-subject">Seu assunto aparecerá aqui</strong><span id="campaign-preview-preheader"></span></div><iframe id="campaign-preview" title="Prévia do conteúdo do e-mail" sandbox=""></iframe></section></div>
-    <section class="panel campaign-review-panel"><div class="panel-header"><div><div class="panel-title">Preparar revisão</div><div class="panel-subtitle">Escolha um segmento. A contagem considera somente contatos com consentimento confirmado.</div></div></div><div class="campaign-review-controls"><label for="campaign-review-segment">Público da campanha<select id="campaign-review-segment"><option value="">Todos os contatos confirmados</option></select></label><p>Nenhum e-mail será enviado. A fila registra o rascunho e a contagem do público para revisão.</p></div><div id="campaign-review-list" class="campaign-review-list">Carregando…</div></section>
+    <section class="panel campaign-review-panel"><div class="panel-header"><div><div class="panel-title">Preparar revisão</div><div class="panel-subtitle">Escolha um segmento. A contagem considera somente contatos com consentimento confirmado.</div></div></div><div class="campaign-review-controls"><label for="campaign-review-segment">Público da campanha<select id="campaign-review-segment"><option value="">Todos os contatos confirmados</option></select></label><p>A revisão só guarda a contagem. O envio começa quando você enfileira, e o worker respeita supressão e o limite de cinco e-mails de marketing em sete dias.</p></div><div id="campaign-review-list" class="campaign-review-list">Carregando…</div></section>
     <section class="panel campaign-list-panel"><div class="panel-header"><div><div class="panel-title">Rascunhos salvos</div><div class="panel-subtitle">Armazenados neste workspace; o público é recalculado com base nos consentimentos atuais.</div></div></div><div id="campaign-draft-list" class="campaign-draft-list">Carregando…</div></section>`;
 }
 
 function renderCampaigns() {
-  const page = { title: 'Campanhas', kicker: 'MENSAGENS', subtitle: 'Prepare e revise e-mails antes de habilitar os envios.' };
+  const page = { title: 'Campanhas', kicker: 'MENSAGENS', subtitle: 'Revise o público e enfileire. O envio acontece no worker, não no clique.' };
   document.querySelector('#crumb').textContent = page.title;
   document.title = `SendMaster — ${page.title}`;
   document.querySelectorAll('.nav-item').forEach(link => link.classList.toggle('active', link.dataset.view === 'campanhas'));
@@ -28,6 +28,9 @@ function renderCampaigns() {
   document.querySelector('#campaign-review-add').addEventListener('click', addCurrentCampaignToReview);
   document.querySelector('#campaign-draft-list').addEventListener('click', handleCampaignListClick);
   document.querySelector('#campaign-review-list').addEventListener('click', handleReviewQueueClick);
+  document.querySelector('#campaign-template-apply').addEventListener('click', applyCampaignTemplate);
+  document.querySelector('#campaign-template-save').addEventListener('click', saveCampaignTemplate);
+  void refreshCampaignTemplates();
   renderCampaignPreview();
   void refreshCampaignDrafts();
 }
@@ -86,7 +89,7 @@ async function refreshCampaignReviewQueue() {
     }
     const list = document.querySelector('#campaign-review-list');
     if (!list) return;
-    list.innerHTML = campaignReviewEntries.length ? campaignReviewEntries.map(entry => `<article class="campaign-review-row"><div><strong>${escapeText(entry.campaignName)}</strong><span>Público: ${escapeText(entry.segmentName)}</span><small>${entry.recipientCount.toLocaleString('pt-BR')} contato(s) quando entrou · ${entry.currentRecipientCount.toLocaleString('pt-BR')} elegível(is) agora</small>${entry.currentRecipientCount !== entry.recipientCount ? '<em>A quantidade mudou desde a revisão. Confira novamente antes de qualquer envio.</em>' : ''}</div><span class="review-status">Aguardando revisão</span><button type="button" class="button secondary" data-delete-review="${escapeText(entry.id)}">Remover</button></article>`).join('') : '<p class="campaign-empty">A fila de revisão está vazia.</p>';
+    list.innerHTML = campaignReviewEntries.length ? campaignReviewEntries.map(entry => `<article class="campaign-review-row"><div><strong>${escapeText(entry.campaignName)}</strong><span>Público: ${escapeText(entry.segmentName)}</span><small>${entry.recipientCount.toLocaleString('pt-BR')} contato(s) quando entrou · ${entry.currentRecipientCount.toLocaleString('pt-BR')} elegível(is) agora</small>${entry.currentRecipientCount !== entry.recipientCount ? '<em>A quantidade mudou desde a revisão. Confira novamente antes de qualquer envio.</em>' : ''}</div><label class="campaign-send-at">Enviar em<input type="datetime-local" data-send-at="${escapeText(entry.id)}"></label><span class="review-status">Pronta para enfileirar</span><button type="button" class="button primary" data-enqueue-review="${escapeText(entry.id)}">Enfileirar envio</button><button type="button" class="button secondary" data-delete-review="${escapeText(entry.id)}">Remover</button></article>`).join('') : '<p class="campaign-empty">A fila de revisão está vazia.</p>';
   } catch (error) { const list = document.querySelector('#campaign-review-list'); if (list) list.textContent = error.message; }
 }
 
@@ -105,6 +108,24 @@ async function addCurrentCampaignToReview() {
 }
 
 async function handleReviewQueueClick(event) {
+  const enqueue = event.target.closest('[data-enqueue-review]');
+  if (enqueue) {
+    enqueue.disabled = true;
+    try {
+      const when = enqueue.closest('article')?.querySelector('[data-send-at]');
+      let sendAt = null;
+      if (when?.value) {
+        const parsed = new Date(when.value);
+        if (Number.isNaN(parsed.getTime())) throw new Error('Data de envio inválida.');
+        sendAt = parsed.toISOString();
+      }
+      const result = await api(`/api/workspaces/${encodeURIComponent(activeWorkspace().id)}/campaign-review/${encodeURIComponent(enqueue.dataset.enqueueReview)}/queue`, { method: 'POST', body: JSON.stringify({ sendAt }) });
+      const schedule = sendAt && new Date(sendAt).getTime() > Date.now() ? ` O envio começa em ${new Date(sendAt).toLocaleString('pt-BR')}.` : ' O worker envia no próximo ciclo.';
+      toast(`${result.queued.toLocaleString('pt-BR')} contato(s) entraram na fila. ${result.alreadyQueued.toLocaleString('pt-BR')} já estavam nela.${schedule}`);
+    } catch (error) { toast(error.message); }
+    finally { enqueue.disabled = false; }
+    return;
+  }
   const remove = event.target.closest('[data-delete-review]');
   if (!remove) return;
   try {
@@ -149,6 +170,39 @@ async function handleCampaignListClick(event) {
       toast('Rascunho excluído.');
     } catch (error) { toast(error.message); }
   }
+}
+
+let campaignTemplates = [];
+async function refreshCampaignTemplates() {
+  try {
+    const result = await api(`/api/workspaces/${encodeURIComponent(activeWorkspace().id)}/templates`);
+    campaignTemplates = result.templates;
+    const select = document.querySelector('#campaign-template');
+    if (!select) return;
+    const selected = select.value;
+    select.innerHTML = `<option value="">Escolha um modelo</option>${campaignTemplates.map(item => `<option value="${escapeText(item.id)}">${escapeText(item.name)}</option>`).join('')}`;
+    if (campaignTemplates.some(item => item.id === selected)) select.value = selected;
+  } catch (error) { toast(error.message); }
+}
+function applyCampaignTemplate() {
+  const selected = document.querySelector('#campaign-template').value;
+  const template = campaignTemplates.find(item => item.id === selected);
+  if (!template) { toast('Escolha um modelo.'); return; }
+  const form = document.querySelector('#campaign-editor-form');
+  for (const key of ['subject', 'preheader', 'html', 'text']) form.elements.namedItem(key).value = template[key];
+  renderCampaignPreview();
+  document.querySelector('#campaign-feedback').textContent = `Modelo “${template.name}” copiado para este rascunho. Salve para guardar a cópia.`;
+}
+async function saveCampaignTemplate() {
+  const form = document.querySelector('#campaign-editor-form');
+  const values = Object.fromEntries(new FormData(form).entries());
+  const name = prompt('Nome deste modelo:', String(values.name || 'Modelo'));
+  if (!name) return;
+  try {
+    await api(`/api/workspaces/${encodeURIComponent(activeWorkspace().id)}/templates`, { method: 'POST', body: JSON.stringify({ name: name.trim(), subject: String(values.subject || '').trim(), preheader: String(values.preheader || '').trim(), html: String(values.html || '').trim(), text: String(values.text || '').trim() }) });
+    await refreshCampaignTemplates();
+    toast('Modelo salvo. Ele não altera campanhas já gravadas.');
+  } catch (error) { toast(error.message); }
 }
 
 function campaignsView(key) {

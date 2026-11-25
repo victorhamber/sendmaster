@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx src/server.ts",
     "start": "tsx src/server.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/campaign-queue.test.ts src/provider-callback.test.ts src/public-access.test.ts src/outbound.test.ts src/personalize.test.ts src/templates.test.ts src/tracking.test.ts src/sequences.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

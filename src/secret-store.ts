@@ -5,8 +5,8 @@ import { execFileSync } from 'node:child_process';
 const windowsProtectScript = `$raw=[Console]::In.ReadToEnd().Trim();$bytes=[Convert]::FromBase64String($raw);Add-Type -AssemblyName System.Security;$protected=[System.Security.Cryptography.ProtectedData]::Protect($bytes,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser);[Console]::Out.Write([Convert]::ToBase64String($protected))`;
 const windowsUnprotectScript = `$raw=[Console]::In.ReadToEnd().Trim();$bytes=[Convert]::FromBase64String($raw);Add-Type -AssemblyName System.Security;$clear=[System.Security.Cryptography.ProtectedData]::Unprotect($bytes,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser);[Console]::Out.Write([Convert]::ToBase64String($clear))`;
 
-function powershell(script: string, input: string): string {
-  const encodedInput = Buffer.from(input, 'utf8').toString('base64');
+function powershell(script: string, input: string, alreadyBase64 = false): string {
+  const encodedInput = alreadyBase64 ? input : Buffer.from(input, 'utf8').toString('base64');
   return execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
     input: encodedInput, encoding: 'utf8', windowsHide: true, timeout: 10_000,
   }).trim();
@@ -33,7 +33,7 @@ export function protectSecret(value: string): string {
 export function revealSecret(value: string): string {
   if (value.startsWith('dpapi:v1:')) {
     if (process.platform !== 'win32') throw new Error('Esta credencial foi protegida pelo Windows; informe a chave novamente após migrar para outro sistema.');
-    return Buffer.from(powershell(windowsUnprotectScript, value.slice('dpapi:v1:'.length)), 'base64').toString('utf8');
+    return Buffer.from(powershell(windowsUnprotectScript, value.slice('dpapi:v1:'.length), true), 'base64').toString('utf8');
   }
   if (value.startsWith('aesgcm:v1:')) {
     const [, , ivText, tagText, cipherText] = value.split(':');
