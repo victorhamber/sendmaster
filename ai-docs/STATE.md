@@ -1,5 +1,5 @@
 # Estado atual — SendMaster-App
-Atualizado: 2026-11-25
-- Feito: envio interrompido volta para a fila depois de 2 minutos. A visão geral usa contagem real. O pré-cabeçalho entra oculto no HTML.
-- Próximo: publicar esta versão no Easypanel a partir do GitHub. O app é o container Node, não um site ASP.NET.
-- Limite: os outros provedores não têm callback assinado. Um proxy de imagem pode contar abertura sem leitura. O limite do formulário público fica na memória do processo. Não há grafo livre de fluxo. SPF, DKIM e DMARC ficam no provedor.
+Atualizado: 2026-11-25.
+- Feito: a automação tem caminho sim e não. Entregabilidade consulta SPF, DKIM e DMARC no DNS. O e-mail pode ser montado por blocos.
+- Próximo: publicar esta versão no Easypanel. O valor de SPF e DKIM continua saindo do provedor.
+- Limite: bounce automático só no Mailgun, Resend, MailerSend e SparkPost. O limite do formulário público fica na memória. Não há construtor livre de fluxo.

@@ -1,5 +1,5 @@
 # Email marketing
-Fontes: `src/campaigns.ts`, `src/campaign-delivery.ts`, `src/campaign-queue.ts`, `src/campaign-queue.test.ts`, `src/provider-callback.ts`, `src/provider-callback.test.ts`, `src/outbound.ts`, `src/outbound.test.ts`, `src/public-access.ts`, `src/public-access.test.ts`, `src/personalize.ts`, `src/personalize.test.ts`, `src/templates.ts`, `src/templates.test.ts`, `src/tracking.ts`, `src/tracking.test.ts`, `src/sequences.ts`, `src/sequences.test.ts`, `src/suppressions.ts`, `src/forms.ts`, `src/mailer.ts`
+Fontes: `src/campaigns.ts`, `src/campaign-delivery.ts`, `src/campaign-queue.ts`, `src/campaign-queue.test.ts`, `src/provider-callback.ts`, `src/provider-callback.test.ts`, `src/outbound.ts`, `src/outbound.test.ts`, `src/public-access.ts`, `src/public-access.test.ts`, `src/personalize.ts`, `src/personalize.test.ts`, `src/templates.ts`, `src/templates.test.ts`, `src/tracking.ts`, `src/tracking.test.ts`, `src/sequences.ts`, `src/sequences.test.ts`, `src/dns-check.ts`, `src/dns-check.test.ts`, `src/suppressions.ts`, `src/forms.ts`, `src/mailer.ts`
 Propósito: contrato para o SendMaster virar email marketing completo, sem fork do Mautic.
 
 ## Escopo
@@ -22,7 +22,7 @@ Propósito: contrato para o SendMaster virar email marketing completo, sem fork 
 5. Feito: outbox com retry. Entrega para uma URL HTTPS configurada, não abre webhook público.
 6. Feito: agendamento, personalização de nome e e-mail, e modelos reutilizáveis. O modelo não reescreve a campanha já salva.
 7. Feito: abertura, clique e relatório. O token aponta para a mensagem. O clique não aceita URL solta.
-8. Feito: sequência linear. Espera, condição e próximo e-mail reusam a fila. Sem ramo paralelo.
+8. Feito: sequência com ramo sim/não. O avanço só enfileira. Sem grafo livre. O DNS publicado é lido em `src/dns-check.ts`.
 
 ## Invariantes
 - Envio de campanha não acontece dentro do request HTTP. O clique em Enfileirar só grava a fila. Data futura espera; data vazia ou passada entra no próximo ciclo. A sequência também só enfileira. Mensagem presa em `sending` por mais de 2 minutos volta para a fila. O pré-cabeçalho entra oculto no HTML.

@@ -11,7 +11,8 @@ import { deleteEmailTemplate, listEmailTemplates, saveEmailTemplate } from './te
 import { campaignReport, recordClick, recordOpen, TRACKING_PIXEL, workspaceOverview } from './tracking.js';
 import { addCampaignReviewEntry, deleteCampaignDraft, deleteCampaignReviewEntry, listCampaignDrafts, listCampaignReviewEntries, saveCampaignDraft } from './campaigns.js';
 import { enqueueCampaignReview, processCampaignBatch } from './campaign-queue.js';
-import { advanceSequences, enrollSequence, listSequences, saveSequence, type SequenceStep } from './sequences.js';
+import { advanceSequences, enrollSequence, listSequences, saveSequence, type SequenceFlow, type SequenceStep } from './sequences.js';
+import { lookupDomainAuth } from './dns-check.js';
 import { sendCampaignToContact } from './campaign-delivery.js';
 import { acceptProviderCallback } from './provider-callback.js';
 import { applyProviderMailEvent, unsubscribeWithToken } from './suppressions.js';
@@ -325,7 +326,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       if (sequencesMatch && req.method === 'POST') {
         const workspaceId = decodeURIComponent(sequencesMatch[1]);
         const body = await readJson(req);
-        const saved = saveSequence(workspaceId, String(body.name ?? ''), Array.isArray(body.steps) ? body.steps as SequenceStep[] : []);
+        const steps = Array.isArray(body.steps) ? body.steps as SequenceStep[] : body.steps && typeof body.steps === 'object' ? body.steps as SequenceFlow : [];
+        const saved = saveSequence(workspaceId, String(body.name ?? ''), steps);
         return saved ? sendJson(res, 201, { id: saved, sequences: listSequences(workspaceId) }) : sendJson(res, 400, { error: 'A sequência precisa começar com um e-mail e usar campanhas deste workspace.' });
       }
       if (sequenceEnrollMatch && req.method === 'POST') {
@@ -409,6 +411,14 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         if (!validDomain(body.sending) || !validDomain(body.tracking)) return sendJson(res, 400, { error: 'Informe domínios válidos.' });
         const domains: Domains = { sending: body.sending.toLowerCase(), tracking: body.tracking.toLowerCase() };
         return saveDomains(id, domains) ? sendJson(res, 200, { domains }) : sendJson(res, 404, { error: 'Workspace não encontrado.' });
+      }
+      const dnsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/dns-check$/);
+      if (dnsMatch && req.method === 'GET') {
+        const workspaceId = decodeURIComponent(dnsMatch[1]);
+        const sending = readState().domainsByWorkspace[workspaceId]?.sending ?? '';
+        if (!sending) return sendJson(res, 400, { error: 'Salve o domínio de envio antes de verificar.' });
+        const checked = await lookupDomainAuth(sending, url.searchParams.get('selector') || 'default');
+        return checked ? sendJson(res, 200, checked) : sendJson(res, 400, { error: 'Domínio ou seletor DKIM inválido.' });
       }
       const contactsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/contacts$/);
       const contactImportMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/contacts\/import$/);

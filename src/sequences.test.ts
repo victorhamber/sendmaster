@@ -89,3 +89,32 @@ test('sem abertura a sequência para e não enfileira o e-mail seguinte', () => 
   assert.equal(sequences.saveSequence(workspaceId, 'Inválida', [{ kind: 'condition', when: 'opened' }]), null);
   assert.equal(sequences.enrollSequence(workspaceId, sequenceId, contact(workspaceId, 'pending')), false);
 });
+
+test('a condição segue o sim ou o não', () => {
+  const workspaceId = workspace();
+  const first = campaign(workspaceId, 'Primeiro');
+  const yes = campaign(workspaceId, 'Abriu');
+  const no = campaign(workspaceId, 'Não abriu');
+  const opened = contact(workspaceId);
+  const closed = contact(workspaceId);
+  const sequenceId = sequences.saveSequence(workspaceId, 'Ramo', {
+    start: 'a',
+    nodes: [
+      { id: 'a', kind: 'email', campaignId: first, next: 'c' },
+      { id: 'c', kind: 'condition', when: 'opened', yes: 'y', no: 'n' },
+      { id: 'y', kind: 'email', campaignId: yes, next: null },
+      { id: 'n', kind: 'email', campaignId: no, next: null },
+    ],
+  });
+  assert.ok(sequenceId);
+  sequences.enrollSequence(workspaceId, sequenceId!, opened, start);
+  sequences.enrollSequence(workspaceId, sequenceId!, closed, start);
+  sequences.advanceSequences(start);
+  db.prepare(`UPDATE campaign_messages SET status = 'sent', sent_at = ?, open_count = 1 WHERE campaign_id = ? AND contact_id = ?`).run(start.toISOString(), first, opened);
+  db.prepare(`UPDATE campaign_messages SET status = 'sent', sent_at = ? WHERE campaign_id = ? AND contact_id = ?`).run(start.toISOString(), first, closed);
+  sequences.advanceSequences(new Date(start.getTime() + 60_000));
+  assert.equal(messageStatus(yes, opened), 'queued');
+  assert.equal(messageStatus(no, opened), undefined);
+  assert.equal(messageStatus(no, closed), 'queued');
+  assert.equal(messageStatus(yes, closed), undefined);
+});

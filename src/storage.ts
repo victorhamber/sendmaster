@@ -182,7 +182,7 @@ db.exec(`
     id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     sequence_id TEXT NOT NULL REFERENCES sequences(id) ON DELETE CASCADE,
     contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
-    step_index INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL CHECK(status IN ('active','done','stopped')),
+    step_index INTEGER NOT NULL DEFAULT 0, step_id TEXT, status TEXT NOT NULL CHECK(status IN ('active','done','stopped')),
     next_at TEXT NOT NULL, last_message_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
     UNIQUE(sequence_id, contact_id)
   );
@@ -198,6 +198,8 @@ const messageColumns = db.prepare('PRAGMA table_info(campaign_messages)').all() 
 if (!messageColumns.some(column => column.name === 'provider_message_id')) db.exec('ALTER TABLE campaign_messages ADD COLUMN provider_message_id TEXT');
 if (!messageColumns.some(column => column.name === 'opened_at')) db.exec('ALTER TABLE campaign_messages ADD COLUMN opened_at TEXT');
 if (!messageColumns.some(column => column.name === 'open_count')) db.exec('ALTER TABLE campaign_messages ADD COLUMN open_count INTEGER NOT NULL DEFAULT 0');
+const enrollmentColumns = db.prepare('PRAGMA table_info(sequence_enrollments)').all() as Array<{name:string}>;
+if (enrollmentColumns.length && !enrollmentColumns.some(column => column.name === 'step_id')) db.exec('ALTER TABLE sequence_enrollments ADD COLUMN step_id TEXT');
 for (const [column, definition] of [
   ['collect_phone', "INTEGER NOT NULL DEFAULT 0"], ['phone_required', "INTEGER NOT NULL DEFAULT 0"],
   ['page_color', "TEXT NOT NULL DEFAULT '#f5f8f6'"], ['card_color', "TEXT NOT NULL DEFAULT '#ffffff'"],

@@ -1,52 +1,113 @@
-// Sequência linear na tela de automações. O botão só grava a inscrição.
+// Fluxo horizontal com um ramo sim/não. Inscrever só grava a fila.
 const sequencesPreviousView = window.view;
 
-function sequenceStepLabel(step) {
-  if (step.kind === 'email') return 'E-mail';
-  if (step.kind === 'wait') return `Espera de ${step.hours} h`;
-  return step.when === 'opened' ? 'Se abriu' : step.when === 'not_opened' ? 'Se não abriu' : step.when === 'clicked' ? 'Se clicou' : 'Se não clicou';
+function newStepId() {
+  return `s${Math.random().toString(36).slice(2, 8)}`;
 }
+
+let sequenceDraft = { start: 's1', nodes: [{ id: 's1', kind: 'email', campaignId: '', next: null }] };
+let sequenceCampaigns = [];
 
 function renderSequences() {
   document.querySelector('#crumb').textContent = 'Automações';
   document.title = 'SendMaster — Automações';
   document.querySelectorAll('.nav-item').forEach(link => link.classList.toggle('active', link.dataset.view === 'automacoes'));
-  document.querySelector('#app').innerHTML = `<div class="page-head"><div><div class="eyebrow">JORNADAS</div><h1>Automações</h1><p>A sequência é uma lista: e-mail, espera e condição. Inscrever não envia. O worker da fila envia depois.</p></div></div>
+  document.querySelector('#app').innerHTML = `<div class="page-head"><div><div class="eyebrow">JORNADAS</div><h1>Automações</h1><p>O fluxo segue para o lado. A condição abre dois caminhos: sim e não. Inscrever não envia.</p></div></div>
     <section class="panel"><form id="sequence-form"><div class="campaign-fields"><label>Nome<input name="name" required maxlength="100" placeholder="Ex.: Boas-vindas"></label></div>
       <div id="sequence-steps"></div>
-      <div class="campaign-editor-actions"><span id="sequence-feedback" role="status">Comece com um e-mail já salvo em Campanhas.</span><div><button type="button" class="button secondary" id="sequence-add-email">+ E-mail</button><button type="button" class="button secondary" id="sequence-add-wait">+ Espera</button><button type="button" class="button secondary" id="sequence-add-condition">+ Condição</button><button type="submit" class="button primary">Salvar sequência</button></div></div></form></section>
-    <section class="panel"><div class="panel-title">Inscrever contato confirmado</div><form id="sequence-enroll" class="campaign-fields"><label>Sequência<select name="sequenceId" id="sequence-picker" required></select></label><label>Contato<select name="contactId" id="sequence-contact" required></select></label><button type="submit" class="button primary">Inscrever</button></form></section>
+      <div class="campaign-editor-actions"><span id="sequence-feedback" role="status">Comece com um e-mail já salvo em Campanhas.</span><div id="sequence-actions"></div></div></form></section>
+    <section class="panel"><div class="panel-title">Inscrever contato confirmado</div><form id="sequence-enroll" class="campaign-fields"><label>Sequência<select name="sequenceId" id="sequence-picker" required></select></label><label>Contato<select name="contactId" id="sequence-contact" required></select></label><div class="full"><button type="submit" class="button primary">Inscrever</button></div></form></section>
     <section class="panel"><div id="sequence-list">Carregando…</div></section>`;
-  document.querySelector('#sequence-add-email').addEventListener('click', () => addSequenceStep({ kind: 'email', campaignId: '' }));
-  document.querySelector('#sequence-add-wait').addEventListener('click', () => addSequenceStep({ kind: 'wait', hours: 24 }));
-  document.querySelector('#sequence-add-condition').addEventListener('click', () => addSequenceStep({ kind: 'condition', when: 'opened' }));
   document.querySelector('#sequence-form').addEventListener('submit', saveSequenceForm);
   document.querySelector('#sequence-enroll').addEventListener('submit', enrollSequenceForm);
-  sequenceDraft = [{ kind: 'email', campaignId: '' }];
+  sequenceDraft = { start: 's1', nodes: [{ id: 's1', kind: 'email', campaignId: '', next: null }] };
   void loadSequencePage();
 }
 
-let sequenceDraft = [];
-let sequenceCampaigns = [];
+function nodeById(id) {
+  return sequenceDraft.nodes.find(node => node.id === id);
+}
 
-function addSequenceStep(step) {
-  if (sequenceDraft.length >= 12) return;
-  sequenceDraft.push(step);
+function chain(id) {
+  const cards = [];
+  const seen = new Set();
+  let cursor = id;
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    const node = nodeById(cursor);
+    if (!node) break;
+    cards.push(node);
+    if (node.kind === 'condition') break;
+    cursor = node.next;
+  }
+  return cards;
+}
+
+function appendNode(fromId, link, step) {
+  if (sequenceDraft.nodes.length >= 12) return;
+  const node = { id: newStepId(), ...step };
+  const parent = nodeById(fromId);
+  if (!parent) return;
+  if (link === 'next') parent.next = node.id;
+  else parent[link] = node.id;
+  sequenceDraft.nodes.push(node);
   drawSequenceSteps();
+}
+
+function drawCards(nodes) {
+  const options = sequenceCampaigns.map(campaign => `<option value="${escapeText(campaign.id)}">${escapeText(campaign.name)}</option>`).join('');
+  return nodes.map((node, index) => {
+    const arrow = index ? '<span class="flow-arrow" aria-hidden="true">→</span>' : '';
+    let body = '';
+    if (node.kind === 'email') body = `<span>E-mail</span><select data-flow-email="${node.id}"><option value="">Escolha a campanha</option>${options}</select>`;
+    else if (node.kind === 'wait') body = `<span>Espera</span><input data-flow-wait="${node.id}" type="number" min="1" max="8760" value="${node.hours}" aria-label="Horas de espera">`;
+    else body = `<span>Condição</span><select data-flow-when="${node.id}"><option value="opened">Se abriu o e-mail anterior</option><option value="clicked">Se clicou em um link</option></select>`;
+    return `${arrow}<article class="flow-card">${body}</article>`;
+  }).join('');
+}
+
+function bindCards(root) {
+  root.querySelectorAll('[data-flow-email]').forEach(select => {
+    select.value = nodeById(select.dataset.flowEmail)?.campaignId || '';
+    select.addEventListener('change', () => { nodeById(select.dataset.flowEmail).campaignId = select.value; });
+  });
+  root.querySelectorAll('[data-flow-wait]').forEach(input => input.addEventListener('change', () => { nodeById(input.dataset.flowWait).hours = Number(input.value); }));
+  root.querySelectorAll('[data-flow-when]').forEach(select => {
+    select.value = nodeById(select.dataset.flowWhen)?.when || 'opened';
+    select.addEventListener('change', () => { nodeById(select.dataset.flowWhen).when = select.value; });
+  });
 }
 
 function drawSequenceSteps() {
   const root = document.querySelector('#sequence-steps');
-  if (!root) return;
-  const options = sequenceCampaigns.map(campaign => `<option value="${escapeText(campaign.id)}">${escapeText(campaign.name)}</option>`).join('');
-  root.innerHTML = sequenceDraft.map((step, index) => {
-    if (step.kind === 'email') return `<label>E-mail ${index + 1}<select data-sequence-email="${index}"><option value="">Escolha a campanha</option>${options}</select></label>`;
-    if (step.kind === 'wait') return `<label>Espera em horas<input data-sequence-wait="${index}" type="number" min="1" max="8760" value="${step.hours}"></label>`;
-    return `<label>Condição<select data-sequence-when="${index}"><option value="opened">Se abriu o e-mail anterior</option><option value="not_opened">Se não abriu</option><option value="clicked">Se clicou</option><option value="not_clicked">Se não clicou</option></select></label>`;
-  }).join('');
-  root.querySelectorAll('[data-sequence-email]').forEach(select => { select.value = sequenceDraft[Number(select.dataset.sequenceEmail)].campaignId || ''; select.addEventListener('change', () => { sequenceDraft[Number(select.dataset.sequenceEmail)].campaignId = select.value; }); });
-  root.querySelectorAll('[data-sequence-wait]').forEach(input => input.addEventListener('change', () => { sequenceDraft[Number(input.dataset.sequenceWait)].hours = Number(input.value); }));
-  root.querySelectorAll('[data-sequence-when]').forEach(select => { select.value = sequenceDraft[Number(select.dataset.sequenceWhen)].when; select.addEventListener('change', () => { sequenceDraft[Number(select.dataset.sequenceWhen)].when = select.value; }); });
+  const actions = document.querySelector('#sequence-actions');
+  if (!root || !actions) return;
+  const main = chain(sequenceDraft.start);
+  const condition = main.find(node => node.kind === 'condition');
+  const tail = main[main.length - 1];
+  const yes = condition ? chain(condition.yes) : [];
+  const no = condition ? chain(condition.no) : [];
+  root.innerHTML = `<div class="flow-board"><div class="flow-row">${drawCards(main)}</div>${condition ? `<div class="flow-branches"><section class="flow-branch"><strong>Sim</strong><div class="flow-row">${drawCards(yes) || '<p class="tag-empty">Nada neste caminho.</p>'}</div><div class="flow-branch-actions"><button type="button" class="button secondary" data-flow-add="yes">+ E-mail</button><button type="button" class="button secondary" data-flow-add="yes-wait">+ Espera</button></div></section><section class="flow-branch"><strong>Não</strong><div class="flow-row">${drawCards(no) || '<p class="tag-empty">Nada neste caminho. A sequência para.</p>'}</div><div class="flow-branch-actions"><button type="button" class="button secondary" data-flow-add="no">+ E-mail</button><button type="button" class="button secondary" data-flow-add="no-wait">+ Espera</button></div></section></div>` : ''}</div>`;
+  actions.innerHTML = condition ? '' : `<button type="button" class="button secondary" id="sequence-add-email">+ E-mail</button><button type="button" class="button secondary" id="sequence-add-wait">+ Espera</button><button type="button" class="button secondary" id="sequence-add-condition">+ Condição</button><button type="submit" class="button primary">Salvar sequência</button>`;
+  if (condition) actions.innerHTML = `<button type="submit" class="button primary">Salvar sequência</button>`;
+  bindCards(root);
+  document.querySelector('#sequence-add-email')?.addEventListener('click', () => appendNode(tail.id, 'next', { kind: 'email', campaignId: '', next: null }));
+  document.querySelector('#sequence-add-wait')?.addEventListener('click', () => appendNode(tail.id, 'next', { kind: 'wait', hours: 24, next: null }));
+  document.querySelector('#sequence-add-condition')?.addEventListener('click', () => appendNode(tail.id, 'next', { kind: 'condition', when: 'opened', yes: null, no: null }));
+  root.querySelectorAll('[data-flow-add]').forEach(button => button.addEventListener('click', () => {
+    const kind = button.dataset.flowAdd;
+    const side = kind.startsWith('yes') ? 'yes' : 'no';
+    const branch = side === 'yes' ? yes : no;
+    const from = branch.length ? branch[branch.length - 1].id : condition.id;
+    const link = branch.length ? 'next' : side;
+    const step = kind.endsWith('wait') ? { kind: 'wait', hours: 24, next: null } : { kind: 'email', campaignId: '', next: null };
+    appendNode(from, link, step);
+  }));
+}
+
+function flowLabel(flow) {
+  if (!flow || !Array.isArray(flow.nodes)) return 'Fluxo salvo';
+  return flow.nodes.map(node => node.kind === 'email' ? 'E-mail' : node.kind === 'wait' ? `Espera ${node.hours}h` : 'Condição').join(' → ');
 }
 
 async function loadSequencePage() {
@@ -60,10 +121,9 @@ async function loadSequencePage() {
     if (activeWorkspace().id !== workspaceId) return;
     sequenceCampaigns = campaigns.campaigns;
     drawSequenceSteps();
-    const picker = document.querySelector('#sequence-picker');
-    picker.innerHTML = saved.sequences.map(item => `<option value="${escapeText(item.id)}">${escapeText(item.name)}</option>`).join('') || '<option value="">Nenhuma sequência</option>';
+    document.querySelector('#sequence-picker').innerHTML = saved.sequences.map(item => `<option value="${escapeText(item.id)}">${escapeText(item.name)}</option>`).join('') || '<option value="">Nenhuma sequência</option>';
     document.querySelector('#sequence-contact').innerHTML = contacts.contacts.map(contact => `<option value="${escapeText(contact.id)}">${escapeText(contact.email)}</option>`).join('') || '<option value="">Nenhum contato confirmado</option>';
-    document.querySelector('#sequence-list').innerHTML = saved.sequences.length ? saved.sequences.map(item => `<p><strong>${escapeText(item.name)}</strong> — ${item.steps.map(sequenceStepLabel).join(' → ')}</p>`).join('') : '<p class="tag-empty">Nenhuma sequência salva.</p>';
+    document.querySelector('#sequence-list').innerHTML = saved.sequences.length ? saved.sequences.map(item => `<p><strong>${escapeText(item.name)}</strong> — ${escapeText(Array.isArray(item.steps) ? item.steps.map(step => step.kind).join(' → ') : flowLabel(item.steps))}</p>`).join('') : '<p class="tag-empty">Nenhuma sequência salva.</p>';
   } catch (error) { toast(error.message); }
 }
 
