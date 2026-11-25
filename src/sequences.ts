@@ -35,10 +35,18 @@ function cleanSteps(workspaceId: string, steps: SequenceStep[]): SequenceStep[] 
 }
 
 export type FlowNode =
-  | { id: string; kind: 'email'; campaignId: string; next: string | null }
-  | { id: string; kind: 'wait'; hours: number; next: string | null }
-  | { id: string; kind: 'condition'; when: 'opened' | 'not_opened' | 'clicked' | 'not_clicked'; yes: string | null; no: string | null };
+  | { id: string; kind: 'email'; campaignId: string; next: string | null; x?: number; y?: number }
+  | { id: string; kind: 'wait'; hours: number; next: string | null; x?: number; y?: number }
+  | { id: string; kind: 'condition'; when: 'opened' | 'not_opened' | 'clicked' | 'not_clicked'; yes: string | null; no: string | null; x?: number; y?: number };
 export type SequenceFlow = { start: string; nodes: FlowNode[] };
+
+function layout(node: { x?: unknown; y?: unknown }): { x?: number; y?: number } {
+  if (!Number.isInteger(node.x) || !Number.isInteger(node.y)) return {};
+  const x = node.x as number;
+  const y = node.y as number;
+  if (x < 0 || y < 0 || x > 4000 || y > 4000) return {};
+  return { x, y };
+}
 
 function cleanFlow(workspaceId: string, flow: SequenceFlow): SequenceFlow | null {
   if (!flow || !Array.isArray(flow.nodes) || flow.nodes.length < 1 || flow.nodes.length > 12) return null;
@@ -50,11 +58,11 @@ function cleanFlow(workspaceId: string, flow: SequenceFlow): SequenceFlow | null
     const link = (value: unknown) => value === null || (typeof value === 'string' && ids.has(value));
     if (node.kind === 'email' && typeof node.campaignId === 'string' && link(node.next)) {
       if (!db.prepare('SELECT id FROM campaign_drafts WHERE workspace_id = ? AND id = ?').get(workspaceId, node.campaignId)) return null;
-      clean.push({ id: node.id, kind: 'email', campaignId: node.campaignId, next: node.next });
+      clean.push({ id: node.id, kind: 'email', campaignId: node.campaignId, next: node.next, ...layout(node) });
     } else if (node.kind === 'wait' && Number.isInteger(node.hours) && node.hours >= 1 && node.hours <= 8760 && link(node.next)) {
-      clean.push({ id: node.id, kind: 'wait', hours: node.hours, next: node.next });
+      clean.push({ id: node.id, kind: 'wait', hours: node.hours, next: node.next, ...layout(node) });
     } else if (node.kind === 'condition' && conditions.has(node.when) && link(node.yes) && link(node.no)) {
-      clean.push({ id: node.id, kind: 'condition', when: node.when, yes: node.yes, no: node.no });
+      clean.push({ id: node.id, kind: 'condition', when: node.when, yes: node.yes, no: node.no, ...layout(node) });
     } else return null;
   }
   if (clean.find(node => node.id === flow.start)?.kind !== 'email') return null;

@@ -4,8 +4,8 @@ Propósito: contrato para o SendMaster virar email marketing completo, sem fork 
 
 ## Escopo
 - Entra: contatos, segmentos, formulário com consentimento, provedor, campanha em fila sem reenvio, agendamento, personalização, frequência, descadastro/bounce/reclamação ligados ao envio, modelos, abertura/clique/relatório, sequência com espera, condição e próximo e-mail.
-- Fora: páginas, pop-up, pontuação, estágios, SMS, social, CRM, conteúdo dinâmico e construtor livre de fluxo. O zip `mautic-7.x.zip` é referência de comportamento; código GPL não entra no app.
-- Sequência linear entra. Grafo livre de campanha, no estilo do executioner do Mautic, fica de fora.
+- Fora: páginas, pop-up, pontuação, estágios, SMS, social, CRM, conteúdo dinâmico e o grafo de execução do Mautic. O zip `mautic-7.x.zip` é referência de comportamento; código GPL não entra no app.
+- O quadro liga e-mail, espera e condição. Não executa o grafo livre do Mautic.
 
 ## Já no código
 - Contatos, tags, segmentos, CSV pendente e double opt-in: `src/audience.ts`, `src/forms.ts`, `src/storage.ts`.
@@ -22,7 +22,7 @@ Propósito: contrato para o SendMaster virar email marketing completo, sem fork 
 5. Feito: outbox com retry. Entrega para uma URL HTTPS configurada, não abre webhook público.
 6. Feito: agendamento, personalização de nome e e-mail, e modelos reutilizáveis. O modelo não reescreve a campanha já salva.
 7. Feito: abertura, clique e relatório. O token aponta para a mensagem. O clique não aceita URL solta.
-8. Feito: sequência com ramo sim/não. O avanço só enfileira. Sem grafo livre. O DNS publicado é lido em `src/dns-check.ts`.
+8. Feito: quadro com e-mail, espera e ramo sim/não. O avanço só enfileira. O DNS publicado é lido em `src/dns-check.ts`.
 
 ## Invariantes
 - Envio de campanha não acontece dentro do request HTTP. O clique em Enfileirar só grava a fila. Data futura espera; data vazia ou passada entra no próximo ciclo. A sequência também só enfileira. Mensagem presa em `sending` por mais de 2 minutos volta para a fila. O pré-cabeçalho entra oculto no HTML.

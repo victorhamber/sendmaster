@@ -118,3 +118,16 @@ test('a condição segue o sim ou o não', () => {
   assert.equal(messageStatus(no, closed), 'queued');
   assert.equal(messageStatus(yes, closed), undefined);
 });
+
+test('a posição do bloco volta ao carregar a sequência', () => {
+  const workspaceId = workspace();
+  const first = campaign(workspaceId, 'Primeiro');
+  const sequenceId = sequences.saveSequence(workspaceId, 'Mapa', {
+    start: 'a',
+    nodes: [{ id: 'a', kind: 'email', campaignId: first, next: null, x: 120, y: 80 }],
+  });
+  const saved = sequences.listSequences(workspaceId).find(item => item.id === sequenceId);
+  const node = saved && !Array.isArray(saved.steps) ? saved.steps.nodes[0] : undefined;
+  assert.equal(node && 'x' in node ? node.x : 0, 120);
+  assert.equal(node && 'y' in node ? node.y : 0, 80);
+});
